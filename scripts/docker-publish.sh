@@ -7,12 +7,16 @@
 # Env:
 #   DOCKER_SPACE_SORA   Docker Hub username, or registry prefix like ghcr.io/owner (required)
 #   DOCKER_TOKEN_SORA   Registry password or API token (required)
+#   DOCKER_LOGIN_USER   Optional. User for `docker login -u` when it differs from the namespace
+#                       (e.g. GHCR org image ghcr.io/myorg/... — login as your GitHub username).
+#   PUSH_LATEST         Set to 0 to skip tagging/pushing :latest (only push the requested tag).
 #   UV_ALLOW_INSECURE_PYPI  Set to 1 if docker build fails on uv sync with PyPI TLS / cert name
 #                         mismatch (e.g. corporate SSL inspection). Weakens verification for PyPI only.
 #
 # Examples:
 #   DOCKER_SPACE_SORA=myuser DOCKER_TOKEN_SORA=xxx bash scripts/docker-publish.sh
 #   DOCKER_SPACE_SORA=ghcr.io/nikmcfly DOCKER_TOKEN_SORA=ghp_xxx bash scripts/docker-publish.sh v0.2.0
+#   DOCKER_SPACE_SORA=ghcr.io/myorg DOCKER_LOGIN_USER=mygithubuser DOCKER_TOKEN_SORA=ghp_xxx bash scripts/docker-publish.sh
 
 set -euo pipefail
 
@@ -46,10 +50,16 @@ docker build "${BUILD_ARGS[@]}" -t "${IMAGE_NAME}:${TAG}" .
 REMOTE_IMAGE="${DOCKER_SPACE_SORA}/${IMAGE_NAME}:${TAG}"
 echo "Logging in and pushing ${REMOTE_IMAGE}..."
 
-# Docker Hub: login with username. GHCR/other: namespace starts with registry host.
+# Docker Hub: login with username. GHCR/other: registry host is first path segment; login user may
+# differ from org namespace — use DOCKER_LOGIN_USER when pushing to ghcr.io/myorg/... as a person.
 if [[ "${DOCKER_SPACE_SORA}" == *"/"* ]]; then
   REGISTRY="${DOCKER_SPACE_SORA%%/*}"
-  echo "${DOCKER_TOKEN_SORA}" | docker login "${REGISTRY}" -u "${DOCKER_SPACE_SORA#*/}" --password-stdin
+  if [[ -n "${DOCKER_LOGIN_USER:-}" ]]; then
+    LOGIN_USER="${DOCKER_LOGIN_USER}"
+  else
+    LOGIN_USER="${DOCKER_SPACE_SORA#*/}"
+  fi
+  echo "${DOCKER_TOKEN_SORA}" | docker login "${REGISTRY}" -u "${LOGIN_USER}" --password-stdin
 else
   echo "${DOCKER_TOKEN_SORA}" | docker login -u "${DOCKER_SPACE_SORA}" --password-stdin
 fi
@@ -57,8 +67,11 @@ fi
 docker tag "${IMAGE_NAME}:${TAG}" "${REMOTE_IMAGE}"
 docker push "${REMOTE_IMAGE}"
 
-REMOTE_LATEST="${DOCKER_SPACE_SORA}/${IMAGE_NAME}:latest"
-docker tag "${IMAGE_NAME}:${TAG}" "${REMOTE_LATEST}"
-docker push "${REMOTE_LATEST}"
-
-echo "Published ${REMOTE_IMAGE} and ${REMOTE_LATEST}"
+if [[ "${PUSH_LATEST:-1}" == "1" && "${TAG}" != "latest" ]]; then
+  REMOTE_LATEST="${DOCKER_SPACE_SORA}/${IMAGE_NAME}:latest"
+  docker tag "${IMAGE_NAME}:${TAG}" "${REMOTE_LATEST}"
+  docker push "${REMOTE_LATEST}"
+  echo "Published ${REMOTE_IMAGE} and ${REMOTE_LATEST}"
+else
+  echo "Published ${REMOTE_IMAGE}"
+fi

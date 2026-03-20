@@ -1,12 +1,17 @@
-FROM python:3.11
+# --- Stage 1: build fishtank SPA (Bun); output must include dist/index.html for Flask ---
+FROM oven/bun:1.3.11 AS frontend-builder
 
-# Node (root tooling) + Bun (fishtank SPA build)
-ENV BUN_INSTALL=/root/.bun
-ENV PATH="${BUN_INSTALL}/bin:${PATH}"
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends nodejs npm curl unzip \
-  && rm -rf /var/lib/apt/lists/* \
-  && curl -fsSL https://bun.sh/install | bash
+WORKDIR /app
+COPY fishtank/package.json fishtank/bun.lock ./fishtank/
+RUN cd fishtank && bun install --frozen-lockfile
+
+COPY fishtank/ ./fishtank/
+RUN cd fishtank && bun run build \
+  && test -f dist/index.html \
+  || (echo "fishtank build incomplete: missing dist/index.html" >&2 && exit 1)
+
+# --- Stage 2: Python runtime only; serve prebuilt SPA from fishtank/dist ---
+FROM python:3.11
 
 # 从 uv 官方镜像复制 uv
 COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/
@@ -16,30 +21,20 @@ ENV UV_NATIVE_TLS=1
 
 WORKDIR /app
 
-# 先复制依赖描述文件以利用缓存
-COPY package.json ./
-COPY fishtank/package.json ./fishtank/
-COPY backend/pyproject.toml backend/uv.lock ./backend/
+COPY backend/ ./backend/
 
 # 若构建环境对 PyPI 的 TLS 异常（代理/证书替换导致 CN 与 Fastly 默认证书不匹配），
 # 请构建时传入: --build-arg UV_ALLOW_INSECURE_PYPI=1
 ARG UV_ALLOW_INSECURE_PYPI=0
 
-# 安装依赖（Node + Bun + Python）
-RUN npm install \
-  && cd fishtank && bun install \
-  && cd ../backend \
+RUN cd backend \
   && if [ "$UV_ALLOW_INSECURE_PYPI" = "1" ]; then \
        uv sync --allow-insecure-host pypi.org --allow-insecure-host files.pythonhosted.org; \
      else \
        uv sync; \
      fi
 
-# 复制项目源码
-COPY . .
-
-# 构建前端静态资源（Bun -> fishtank/dist）；生产环境 axios 使用同源 /api
-RUN npm run build
+COPY --from=frontend-builder /app/fishtank/dist ./fishtank/dist
 
 EXPOSE 5001
 
