@@ -97,15 +97,17 @@ pip install -r requirements.txt
 python run.py
 ```
 
-**4. Run frontend**
+**4. Run SPA (fishtank — React, Bun)**
 
 ```bash
-cd frontend
-npm install
-npm run dev
+cd fishtank
+bun install
+bun run dev
 ```
 
-Open `http://localhost:3000`.
+Open the URL Bun prints (HTML bundler dev server). API calls use `http://localhost:5001` unless you set `BUN_PUBLIC_API_BASE_URL`.
+
+From the repo root you can run backend + fishtank together: `npm run dev` (requires Bun on `PATH`).
 
 ## Configuration
 

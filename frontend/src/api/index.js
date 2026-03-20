@@ -1,8 +1,10 @@
 import axios from 'axios'
 
-// Create axios instance
+// Create axios instance (prod: same-origin when served by Flask; dev: Vite proxy or explicit VITE_API_BASE_URL)
 const service = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001',
+  baseURL: import.meta.env.DEV
+    ? (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001')
+    : (import.meta.env.VITE_API_BASE_URL || ''),
   timeout: 300000, // 5 minute timeout (ontology generation may require longer time)
   headers: {
     'Content-Type': 'application/json'

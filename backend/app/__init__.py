@@ -9,7 +9,7 @@ import warnings
 # Must be set before all other imports
 warnings.filterwarnings("ignore", message=".*resource_tracker.*")
 
-from flask import Flask, request
+from flask import Flask, abort, request, send_from_directory
 from flask_cors import CORS
 
 from .config import Config
@@ -84,6 +84,27 @@ def create_app(config_class=Config):
     @app.route('/health')
     def health():
         return {'status': 'ok', 'service': 'MiroFish-Offline Backend'}
+
+    # Bun/React production build: serve static SPA from fishtank/dist when present
+    frontend_dist = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '../../fishtank/dist')
+    )
+    index_html = os.path.join(frontend_dist, 'index.html')
+    if os.path.isdir(frontend_dist) and os.path.isfile(index_html):
+
+        @app.route('/', defaults={'path': ''})
+        @app.route('/<path:path>')
+        def spa(path):
+            if path.startswith('api/'):
+                abort(404)
+            if path:
+                candidate = os.path.join(frontend_dist, path)
+                if os.path.isfile(candidate):
+                    return send_from_directory(frontend_dist, path)
+            return send_from_directory(frontend_dist, 'index.html')
+
+        if should_log_startup:
+            logger.info("Serving SPA static files from %s", frontend_dist)
 
     if should_log_startup:
         logger.info("MiroFish-Offline Backend startup complete")
