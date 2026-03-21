@@ -126,6 +126,35 @@ func (s *Service) GetReport(ctx context.Context, reportID string) (map[string]an
 	return meta, nil
 }
 
+// CheckBySimulation matches Flask GET /report/check/<simulation_id> (interview gating, dashboards).
+func (s *Service) CheckBySimulation(ctx context.Context, simulationID string) map[string]any {
+	rid, meta, err := s.Repo.LatestReportBySimulation(ctx, simulationID)
+	has := err == nil && meta != nil
+	out := map[string]any{
+		"simulation_id":      simulationID,
+		"has_report":         has,
+		"interview_unlocked": false,
+	}
+	if !has {
+		out["report_id"] = nil
+		out["report_status"] = nil
+		return out
+	}
+	out["report_id"] = rid
+	out["report_status"] = meta["status"]
+	out["interview_unlocked"] = asString(meta["status"]) == "completed"
+	return out
+}
+
+// GetBySimulation returns the latest report for a simulation (Flask GET /report/by-simulation/...).
+func (s *Service) GetBySimulation(ctx context.Context, simulationID string) (map[string]any, error) {
+	rid, _, err := s.Repo.LatestReportBySimulation(ctx, simulationID)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetReport(ctx, rid)
+}
+
 // AgentLog proxies ReportManager.get_agent_log.
 func (s *Service) AgentLog(reportID string, fromLine int) map[string]any {
 	logs, total, from, hasMore := s.Repo.ReadAgentLog(reportID, fromLine)

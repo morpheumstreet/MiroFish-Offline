@@ -85,6 +85,41 @@ func (s *Server) handleReportGenerateStatusPOST(w http.ResponseWriter, r *http.R
 	ok(w, data)
 }
 
+func (s *Server) handleReportCheck(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Reports == nil {
+		fail(w, http.StatusInternalServerError, "report service not configured")
+		return
+	}
+	sid := r.PathValue("simulationId")
+	if sid == "" {
+		fail(w, http.StatusBadRequest, "simulation_id required")
+		return
+	}
+	ok(w, s.deps.Reports.CheckBySimulation(r.Context(), sid))
+}
+
+func (s *Server) handleReportBySimulation(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Reports == nil {
+		fail(w, http.StatusInternalServerError, "report service not configured")
+		return
+	}
+	sid := r.PathValue("simulationId")
+	data, err := s.deps.Reports.GetBySimulation(r.Context(), sid)
+	if err != nil {
+		if err == ports.ErrReportNotFound {
+			writeJSON(w, http.StatusNotFound, map[string]any{
+				"success":    false,
+				"error":      "No report available for this simulation: " + sid,
+				"has_report": false,
+			})
+			return
+		}
+		fail(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	ok(w, data)
+}
+
 func (s *Server) handleReportGet(w http.ResponseWriter, r *http.Request) {
 	if s.deps.Reports == nil {
 		fail(w, http.StatusInternalServerError, "report service not configured")

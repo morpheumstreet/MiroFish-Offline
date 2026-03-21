@@ -111,6 +111,8 @@ func (s *Server) mountReport(m *http.ServeMux) {
 	p := "report"
 	m.HandleFunc("GET /"+p+"/generate/status", s.handleReportGenerateStatusGET)
 	m.HandleFunc("POST /"+p+"/generate/status", s.handleReportGenerateStatusPOST)
+	m.HandleFunc("GET /"+p+"/check/{simulationId}", s.handleReportCheck)
+	m.HandleFunc("GET /"+p+"/by-simulation/{simulationId}", s.handleReportBySimulation)
 	m.HandleFunc("POST /"+p+"/generate", s.handleReportGenerate)
 	m.HandleFunc("POST /"+p+"/chat", s.handleReportChat)
 	m.HandleFunc("GET /"+p+"/{reportId}/agent-log", s.handleReportAgentLog)
