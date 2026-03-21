@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // Config mirrors backend/app/config.py fields needed for Lake startup and adapters.
@@ -65,8 +66,10 @@ func Load() Config {
 
 		Debug: getenv("LAKE_DEBUG", getenv("FLASK_DEBUG", "true")) == "true",
 
-		LLMAPIKey:    os.Getenv("LLM_API_KEY"),
-		LLMBaseURL:   getenv("LLM_BASE_URL", "http://localhost:11434/v1"),
+		LLMAPIKey: os.Getenv("LLM_API_KEY"),
+		LLMBaseURL: NormalizeOpenAIv1BaseURL(
+			getenv("LLM_BASE_URL", "http://localhost:11434/v1"),
+		),
 		LLMModelName: getenv("LLM_MODEL_NAME", "qwen2.5:32b"),
 		OllamaNumCtx: numCtx,
 		LLMTimeout:   llmTimeout,
@@ -75,8 +78,10 @@ func Load() Config {
 		Neo4jUser:     getenv("NEO4J_USER", "neo4j"),
 		Neo4jPassword: getenv("NEO4J_PASSWORD", "mirofish"),
 
-		EmbeddingModel:   getenv("EMBEDDING_MODEL", "nomic-embed-text"),
-		EmbeddingBaseURL: getenv("EMBEDDING_BASE_URL", "http://localhost:11434"),
+		EmbeddingModel: getenv("EMBEDDING_MODEL", "nomic-embed-text"),
+		EmbeddingBaseURL: strings.TrimRight(strings.TrimSpace(
+			getenv("EMBEDDING_BASE_URL", "http://localhost:11434"),
+		), "/"),
 
 		UploadFolder:        getenv("LAKE_UPLOAD_FOLDER", uploadDefault),
 		MaxUploadBytes:      maxUpload,

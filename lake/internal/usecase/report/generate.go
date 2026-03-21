@@ -3,6 +3,7 @@ package report
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -417,7 +418,12 @@ func outlineWithContents(repo ports.ReportRepository, reportID string, outline m
 			continue
 		}
 		idx := i + 1
-		md, _ := repo.ReadSectionMarkdown(reportID, idx)
+		md, err := repo.ReadSectionMarkdown(reportID, idx)
+		if err != nil && errors.Is(err, ports.ErrReportNotFound) {
+			md = ""
+		} else if err != nil {
+			md = ""
+		}
 		body := md
 		if strings.HasPrefix(body, "## ") {
 			lines := strings.SplitN(body, "\n", 3)

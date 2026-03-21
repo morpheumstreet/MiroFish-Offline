@@ -109,7 +109,7 @@ func (s *Store) ReadSectionMarkdown(reportID string, sectionIndex int) (string, 
 	b, err := os.ReadFile(p)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", nil
+			return "", ports.ErrReportNotFound
 		}
 		return "", err
 	}
@@ -283,7 +283,116 @@ func (s *Store) LatestReportBySimulation(_ context.Context, simulationID string)
 }
 
 func (s *Store) DeleteReport(reportID string) error {
-	return os.RemoveAll(s.reportDir(reportID))
+	dir := s.reportDir(reportID)
+	st, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ports.ErrReportNotFound
+		}
+		return err
+	}
+	if !st.IsDir() {
+		return ports.ErrReportNotFound
+	}
+	return os.RemoveAll(dir)
+}
+
+// ListReports returns report meta dicts (newest first), optionally filtered by simulation_id.
+func (s *Store) ListReports(_ context.Context, simulationID string, limit int) ([]map[string]any, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	entries, err := os.ReadDir(s.root)
+	if err != nil {
+		return nil, err
+	}
+	type row struct {
+		id      string
+		meta    map[string]any
+		created string
+	}
+	var rows []row
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		rid := e.Name()
+		meta, err := s.LoadMeta(rid)
+		if err != nil {
+			continue
+		}
+		if simulationID != "" && str(meta["simulation_id"]) != simulationID {
+			continue
+		}
+		meta = cloneMeta(meta)
+		meta["report_id"] = rid
+		rows = append(rows, row{id: rid, meta: meta, created: str(meta["created_at"])})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].created > rows[j].created })
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, r := range rows {
+		m := r.meta
+		if strings.TrimSpace(str(m["markdown_content"])) == "" {
+			full, _ := s.LoadFullMarkdown(r.id)
+			m["markdown_content"] = full
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+func cloneMeta(m map[string]any) map[string]any {
+	if m == nil {
+		return map[string]any{}
+	}
+	o := make(map[string]any, len(m))
+	for k, v := range m {
+		o[k] = v
+	}
+	return o
+}
+
+// ListGeneratedSections matches Python ReportManager.get_generated_sections.
+func (s *Store) ListGeneratedSections(reportID string) ([]map[string]any, error) {
+	dir := s.reportDir(reportID)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var idx []int
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasPrefix(name, "section_") && strings.HasSuffix(name, ".md") {
+			mid := strings.TrimSuffix(strings.TrimPrefix(name, "section_"), ".md")
+			n, err := strconv.Atoi(mid)
+			if err == nil {
+				idx = append(idx, n)
+			}
+		}
+	}
+	sort.Ints(idx)
+	var sections []map[string]any
+	for _, i := range idx {
+		b, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("section_%02d.md", i)))
+		if err != nil {
+			continue
+		}
+		sections = append(sections, map[string]any{
+			"filename":      fmt.Sprintf("section_%02d.md", i),
+			"section_index": i,
+			"content":       string(b),
+		})
+	}
+	return sections, nil
 }
 
 func writeJSON(path string, v any) error {

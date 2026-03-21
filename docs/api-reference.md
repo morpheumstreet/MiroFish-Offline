@@ -61,9 +61,17 @@ Prefix: `simulation_bp` → `/api/simulation`.
 
 | Method | Path | Notes |
 |--------|------|--------|
-| GET | `/api/simulation/entities/<graph_id>` | Query: `entity_types` (comma-separated), `enrich` (default `true`) |
-| GET | `/api/simulation/entities/<graph_id>/<entity_uuid>` | Single entity + context |
-| GET | `/api/simulation/entities/<graph_id>/by-type/<entity_type>` | Query: `enrich` |
+| GET | `/api/simulation/entities/<graph_id>` | Query: `entity_types` (comma-separated), `enrich` (default `true`) — **Flask** |
+| GET | `/api/simulation/entities/<graph_id>/<entity_uuid>` | Single entity + context — **Flask** |
+| GET | `/api/simulation/entities/<graph_id>/by-type/<entity_type>` | Query: `enrich` — **Flask** |
+
+**Lake (Go):** same semantics, but paths live under the **graph** blueprint so they do not clash with `GET /api/simulation/<simulation_id>/...`:
+
+| Method | Path | Notes |
+|--------|------|--------|
+| GET | `/api/graph/entities/<graph_id>` | Query: `entity_types`, `enrich` |
+| GET | `/api/graph/entities/<graph_id>/<entity_uuid>` | Single entity + context |
+| GET | `/api/graph/entities/<graph_id>/by-type/<entity_type>` | Query: `enrich` |
 
 ### Simulation CRUD & prepare
 
@@ -86,7 +94,9 @@ Prefix: `simulation_bp` → `/api/simulation`.
 | GET | `/api/simulation/<simulation_id>/config` | After prepare |
 | GET | `/api/simulation/<simulation_id>/config/realtime` | Partial config + generation metadata |
 | GET | `/api/simulation/<simulation_id>/config/download` | Attachment `simulation_config.json` |
-| GET | `/api/simulation/script/<script_name>/download` | Allowed: `run_twitter_simulation.py`, `run_reddit_simulation.py`, `run_parallel_simulation.py`, `action_logger.py` |
+| GET | `/api/simulation/script/<script_name>/download` | Allowed: `run_twitter_simulation.py`, `run_reddit_simulation.py`, `run_parallel_simulation.py`, `action_logger.py` — **Flask** |
+
+**Lake (Go):** same handler, path `GET /api/simulation/download/script/<script_name>` (avoids `http.ServeMux` overlap with `/<simulation_id>/config/download`).
 
 ### Run control & status
 
@@ -136,7 +146,8 @@ Prefix: `report_bp` → `/api/report`.
 | Method | Path | Notes |
 |--------|------|--------|
 | GET | `/api/report/<report_id>` | Full report payload |
-| GET | `/api/report/by-simulation/<simulation_id>` | Latest report for simulation |
+| GET | `/api/report/by-simulation/<simulation_id>` | Latest report for simulation — **Flask** path param |
+| GET | `/api/report/by-simulation?simulation_id=` | **Lake:** query param (avoids mux clash with `/{report_id}/...`) |
 | GET | `/api/report/list` | Query: `simulation_id`, `limit` (default 50) |
 | GET | `/api/report/<report_id>/download` | Markdown attachment |
 | DELETE | `/api/report/<report_id>` | Delete report |
@@ -154,7 +165,8 @@ Prefix: `report_bp` → `/api/report`.
 
 | Method | Path | Notes |
 |--------|------|--------|
-| GET | `/api/report/check/<simulation_id>` | `has_report`, `report_status`, `interview_unlocked` |
+| GET | `/api/report/check/<simulation_id>` | `has_report`, `report_status`, `interview_unlocked` — **Flask** |
+| GET | `/api/report/check?simulation_id=` | **Lake:** same JSON shape |
 | GET | `/api/report/<report_id>/agent-log` | Query: `from_line` |
 | GET | `/api/report/<report_id>/agent-log/stream` | Batch log lines |
 | GET | `/api/report/<report_id>/console-log` | Query: `from_line` |

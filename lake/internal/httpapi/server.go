@@ -72,20 +72,22 @@ func (s *Server) mountGraph(m *http.ServeMux) {
 	m.HandleFunc("GET /"+prefix+"/tasks", s.handleListTasks)
 	m.HandleFunc("GET /"+prefix+"/data/{graphId}", s.handleGetGraphData)
 	m.HandleFunc("DELETE /"+prefix+"/delete/{graphId}", s.handleDeleteGraph)
+	// Neo4j entity reads (Flask: /api/simulation/entities/...). On Lake they live under /graph/entities/...
+	// so /api/simulation/{simulationId}/profiles/... cannot collide with /api/simulation/entities/... .
+	m.HandleFunc("GET /"+prefix+"/entities/{graphId}/by-type/{entityType}", s.handleSimEntitiesByType)
+	m.HandleFunc("GET /"+prefix+"/entities/{graphId}/{entityUUID}", s.handleSimEntityDetail)
+	m.HandleFunc("GET /"+prefix+"/entities/{graphId}", s.handleSimEntities)
 }
 
 func (s *Server) mountSimulation(m *http.ServeMux) {
 	p := "simulation"
-	// Literal paths before /{simulationId} wildcard.
-	m.HandleFunc("GET /"+p+"/entities/{graphId}/by-type/{entityType}", s.handleSimEntitiesByType)
-	m.HandleFunc("GET /"+p+"/entities/{graphId}/{entityUUID}", s.handleSimEntityDetail)
-	m.HandleFunc("GET /"+p+"/entities/{graphId}", s.handleSimEntities)
 	m.HandleFunc("POST /"+p+"/create", s.handleSimCreate)
 	m.HandleFunc("POST /"+p+"/prepare", s.handleSimPrepare)
 	m.HandleFunc("POST /"+p+"/prepare/status", s.handleSimPrepareStatus)
 	m.HandleFunc("GET /"+p+"/list", s.handleSimList)
 	m.HandleFunc("GET /"+p+"/history", s.handleSimHistory)
-	m.HandleFunc("GET /"+p+"/script/{scriptName}/download", s.handleSimScriptDownload)
+	// Not /script/.../download: that collides with /{simulationId}/config/download (e.g. /simulation/script/config/download).
+	m.HandleFunc("GET /"+p+"/download/script/{scriptName}", s.handleSimScriptDownload)
 	m.HandleFunc("POST /"+p+"/generate-profiles", s.handleSimGenerateProfiles)
 	m.HandleFunc("POST /"+p+"/start", s.handleSimStart)
 	m.HandleFunc("POST /"+p+"/stop", s.handleSimStop)
@@ -111,12 +113,23 @@ func (s *Server) mountReport(m *http.ServeMux) {
 	p := "report"
 	m.HandleFunc("GET /"+p+"/generate/status", s.handleReportGenerateStatusGET)
 	m.HandleFunc("POST /"+p+"/generate/status", s.handleReportGenerateStatusPOST)
-	m.HandleFunc("GET /"+p+"/check/{simulationId}", s.handleReportCheck)
-	m.HandleFunc("GET /"+p+"/by-simulation/{simulationId}", s.handleReportBySimulation)
+	// Query ?simulation_id= — path params would clash with /{reportId}/agent-log (e.g. /report/check/agent-log).
+	m.HandleFunc("GET /"+p+"/check", s.handleReportCheck)
+	m.HandleFunc("GET /"+p+"/by-simulation", s.handleReportBySimulation)
+	m.HandleFunc("GET /"+p+"/list", s.handleReportList)
+	m.HandleFunc("POST /"+p+"/tools/search", s.handleReportToolsSearch)
+	m.HandleFunc("POST /"+p+"/tools/statistics", s.handleReportToolsStatistics)
 	m.HandleFunc("POST /"+p+"/generate", s.handleReportGenerate)
 	m.HandleFunc("POST /"+p+"/chat", s.handleReportChat)
+	m.HandleFunc("GET /"+p+"/{reportId}/agent-log/stream", s.handleReportAgentLogStream)
+	m.HandleFunc("GET /"+p+"/{reportId}/console-log/stream", s.handleReportConsoleLogStream)
 	m.HandleFunc("GET /"+p+"/{reportId}/agent-log", s.handleReportAgentLog)
 	m.HandleFunc("GET /"+p+"/{reportId}/console-log", s.handleReportConsoleLog)
+	m.HandleFunc("GET /"+p+"/{reportId}/download", s.handleReportDownload)
+	m.HandleFunc("GET /"+p+"/{reportId}/progress", s.handleReportProgress)
+	m.HandleFunc("GET /"+p+"/{reportId}/sections", s.handleReportSections)
+	m.HandleFunc("GET /"+p+"/{reportId}/section/{sectionIndex}", s.handleReportSection)
+	m.HandleFunc("DELETE /"+p+"/{reportId}", s.handleReportDelete)
 	m.HandleFunc("GET /"+p+"/{reportId}", s.handleReportGet)
 }
 

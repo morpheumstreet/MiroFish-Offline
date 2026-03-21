@@ -3,6 +3,7 @@ package report
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -335,4 +336,92 @@ Answer the user clearly and concisely in markdown when helpful.`, req, reportMD,
 func (s *Service) console(reportID, msg string) {
 	line := fmt.Sprintf("[%s] INFO: %s", time.Now().Format("15:04:05"), msg)
 	_ = s.Repo.AppendConsoleLog(reportID, line)
+}
+
+// ListReports matches Flask GET /report/list (optional simulation_id, limit).
+func (s *Service) ListReports(ctx context.Context, simulationID string, limit int) ([]map[string]any, error) {
+	return s.Repo.ListReports(ctx, simulationID, limit)
+}
+
+// Progress returns progress.json (404 if missing, like Flask).
+func (s *Service) Progress(ctx context.Context, reportID string) (map[string]any, error) {
+	if _, err := s.Repo.LoadMeta(reportID); err != nil {
+		return nil, err
+	}
+	p, _ := s.Repo.LoadProgress(reportID)
+	if p == nil {
+		return nil, fmt.Errorf("report does not exist or progress info unavailable: %s", reportID)
+	}
+	return p, nil
+}
+
+// ReportSections matches Flask GET /report/{id}/sections.
+func (s *Service) ReportSections(ctx context.Context, reportID string) (map[string]any, error) {
+	sec, err := s.Repo.ListGeneratedSections(reportID)
+	if err != nil {
+		return nil, err
+	}
+	if sec == nil {
+		sec = []map[string]any{}
+	}
+	meta, err := s.Repo.LoadMeta(reportID)
+	complete := err == nil && meta != nil && asString(meta["status"]) == "completed"
+	return map[string]any{
+		"report_id":   reportID,
+		"sections":    sec,
+		"total":       len(sec),
+		"is_complete": complete,
+	}, nil
+}
+
+// ReportSection returns one section file payload (Flask shape).
+func (s *Service) ReportSection(reportID string, sectionIndex int) (map[string]any, error) {
+	content, err := s.Repo.ReadSectionMarkdown(reportID, sectionIndex)
+	if err != nil {
+		if errors.Is(err, ports.ErrReportNotFound) {
+			return nil, fmt.Errorf("section does not exist: section_%02d.md", sectionIndex)
+		}
+		return nil, err
+	}
+	return map[string]any{
+		"filename": fmt.Sprintf("section_%02d.md", sectionIndex),
+		"content":  content,
+	}, nil
+}
+
+// Delete removes the report folder (ErrReportNotFound if missing).
+func (s *Service) Delete(reportID string) error {
+	return s.Repo.DeleteReport(reportID)
+}
+
+// DownloadMarkdown returns markdown bytes for Content-Disposition download.
+func (s *Service) DownloadMarkdown(reportID string) ([]byte, error) {
+	meta, err := s.Repo.LoadMeta(reportID)
+	if err != nil {
+		return nil, err
+	}
+	md := strings.TrimSpace(asString(meta["markdown_content"]))
+	if md == "" {
+		md, err = s.Repo.LoadFullMarkdown(reportID)
+		if err != nil {
+			return nil, err
+		}
+		md = strings.TrimSpace(md)
+	}
+	if md == "" {
+		return nil, fmt.Errorf("empty report markdown")
+	}
+	return []byte(md), nil
+}
+
+// AgentLogStream returns all parsed agent log entries (Flask stream endpoint shape).
+func (s *Service) AgentLogStream(reportID string) ([]map[string]any, int) {
+	logs, _, _, _ := s.Repo.ReadAgentLog(reportID, 0)
+	return logs, len(logs)
+}
+
+// ConsoleLogStream returns all console lines.
+func (s *Service) ConsoleLogStream(reportID string) ([]string, int) {
+	logs, _, _, _ := s.Repo.ReadConsoleLog(reportID, 0)
+	return logs, len(logs)
 }

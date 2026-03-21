@@ -26,5 +26,7 @@ type ReportRepository interface {
 	ReadConsoleLog(reportID string, fromLine int) (logs []string, totalLines int, fromLineOut int, hasMore bool)
 	AssembleFullMarkdown(reportID string, outline map[string]any) (string, error)
 	LatestReportBySimulation(ctx context.Context, simulationID string) (reportID string, meta map[string]any, err error)
+	ListReports(ctx context.Context, simulationID string, limit int) ([]map[string]any, error)
+	ListGeneratedSections(reportID string) ([]map[string]any, error)
 	DeleteReport(reportID string) error
 }
