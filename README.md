@@ -24,7 +24,7 @@ The [original MiroFish](https://github.com/666ghj/MiroFish) was built for the Ch
 | Original MiroFish | MiroFish-Offline |
 |---|---|
 | Chinese UI | **English UI** (1,000+ strings translated) |
-| Zep Cloud (graph memory) | **Neo4j Community Edition 5.15** |
+| Zep Cloud (graph memory) | **Neo4j Community Edition 5.x** (5.18 in Docker Compose) |
 | DashScope / OpenAI API (LLM) | **Ollama** (qwen2.5, llama3, etc.) |
 | Zep Cloud embeddings | **nomic-embed-text** via Ollama |
 | Cloud API keys required | **Zero cloud dependencies** |
@@ -48,7 +48,7 @@ The [original MiroFish](https://github.com/666ghj/MiroFish) was built for the Ch
 ### Prerequisites
 
 - Docker & Docker Compose (recommended), **or**
-- Python 3.11+, Node.js 18+, Neo4j 5.15+, Ollama
+- Python 3.11+, [uv](https://github.com/astral-sh/uv) (recommended) or pip, Node.js 18+, Bun, Neo4j 5.x, Ollama
 
 ### Option A: Docker (easiest)
 
@@ -75,7 +75,7 @@ Open `http://localhost:5001` — Flask serves the built SPA and `/api` on the sa
 docker run -d --name neo4j \
   -p 7474:7474 -p 7687:7687 \
   -e NEO4J_AUTH=neo4j/mirofish \
-  neo4j:5.15-community
+  neo4j:5.18-community
 ```
 
 **2. Start Ollama & pull models**
@@ -93,8 +93,8 @@ cp .env.example .env
 # Edit .env if your Neo4j/Ollama are on non-default ports
 
 cd backend
-pip install -r requirements.txt
-python run.py
+uv sync && uv run python run.py
+# or: pip install -r requirements.txt && python run.py
 ```
 
 **4. Run SPA (fishtank — React, Bun)**
@@ -107,7 +107,7 @@ bun run dev
 
 Open the URL Bun prints (HTML bundler dev server). API calls use `http://localhost:5001` unless you set `BUN_PUBLIC_API_BASE_URL`.
 
-From the repo root you can run backend + fishtank together: `npm run dev` (requires Bun on `PATH`).
+From the repo root (after `npm install`) you can run backend + fishtank together: `npm run dev` (requires Bun on `PATH` and `uv` for the backend script).
 
 ## Configuration
 
@@ -162,7 +162,7 @@ This fork introduces a clean abstraction layer between the application and the g
                │
         ┌──────▼──────┐
         │  Neo4j CE   │
-        │  5.15       │
+        │  5.x        │
         └─────────────┘
 ```
 
@@ -201,7 +201,7 @@ AGPL-3.0 — same as the original MiroFish project. See [LICENSE](./LICENSE).
 This is a modified fork of [MiroFish](https://github.com/666ghj/MiroFish) by [666ghj](https://github.com/666ghj), originally supported by [Shanda Group](https://www.shanda.com/). The simulation engine is powered by [OASIS](https://github.com/camel-ai/oasis) from the CAMEL-AI team.
 
 **Modifications in this fork:**
-- Backend migrated from Zep Cloud to local Neo4j CE 5.15 + Ollama
-- Entire frontend translated from Chinese to English (20 files, 1,000+ strings)
+- Backend migrated from Zep Cloud to local Neo4j CE + Ollama
+- English UI on a React SPA in `fishtank/` (Bun/Vite); legacy Vue `frontend/` removed
 - All Zep references replaced with Neo4j across the UI
 - Rebranded to MiroFish Offline

@@ -4,6 +4,8 @@
 
 Fully local fork running on Neo4j CE + Ollama. All Zep Cloud dependencies removed. Core pipeline works: upload text → build knowledge graph → entity extraction → simulation → report generation.
 
+Web UI: English **React** SPA in `fishtank/`, built and served alongside the Flask API (same origin in Docker).
+
 ---
 
 ## Near Term
