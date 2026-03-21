@@ -86,3 +86,7 @@ if [[ "${PUSH_LATEST:-1}" == "1" && "${TAG}" != "latest" ]]; then
 else
   echo "Published ${REMOTE_IMAGE}"
 fi
+
+echo ""
+echo "Pull: docker pull sorajez/mirofish-offline"
+echo "Hub:  https://hub.docker.com/r/sorajez/mirofish-offline"
