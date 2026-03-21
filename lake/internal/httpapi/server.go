@@ -109,21 +109,16 @@ func (s *Server) mountSimulation(m *http.ServeMux) {
 
 func (s *Server) mountReport(m *http.ServeMux) {
 	p := "report"
-	m.HandleFunc("POST /"+p+"/generate", s.stubReport("POST /report/generate"))
-	m.HandleFunc("POST /"+p+"/generate/status", s.stubReport("POST /report/generate/status"))
-	m.HandleFunc("GET /"+p+"/list", s.stubReport("GET /report/list"))
-	m.HandleFunc("GET /"+p+"/{reportId}", s.stubReport("GET /report/{reportId}"))
-	m.HandleFunc("POST /"+p+"/chat", s.stubReport("POST /report/chat"))
+	m.HandleFunc("GET /"+p+"/generate/status", s.handleReportGenerateStatusGET)
+	m.HandleFunc("POST /"+p+"/generate/status", s.handleReportGenerateStatusPOST)
+	m.HandleFunc("POST /"+p+"/generate", s.handleReportGenerate)
+	m.HandleFunc("POST /"+p+"/chat", s.handleReportChat)
+	m.HandleFunc("GET /"+p+"/{reportId}/agent-log", s.handleReportAgentLog)
+	m.HandleFunc("GET /"+p+"/{reportId}/console-log", s.handleReportConsoleLog)
+	m.HandleFunc("GET /"+p+"/{reportId}", s.handleReportGet)
 }
 
 func (s *Server) stubGraph(label string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		_ = r
-		fail(w, http.StatusNotImplemented, "lake skeleton: "+label+" — port use case + adapter")
-	}
-}
-
-func (s *Server) stubReport(label string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_ = r
 		fail(w, http.StatusNotImplemented, "lake skeleton: "+label+" — port use case + adapter")

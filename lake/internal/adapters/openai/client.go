@@ -131,6 +131,57 @@ func (c *Client) ChatJSONMessages(ctx context.Context, messages []ChatMessage, t
 	return out, nil
 }
 
+// ChatText calls the chat API without forcing JSON; returns assistant text (fences/thinking stripped lightly).
+func (c *Client) ChatText(ctx context.Context, messages []ChatMessage, temperature float64, maxTokens int) (string, error) {
+	url := c.baseURL + "/chat/completions"
+	body := chatRequest{
+		Model:       c.model,
+		Temperature: temperature,
+		MaxTokens:   maxTokens,
+		Messages:    messages,
+	}
+	if c.ollama && c.numCtx > 0 {
+		body.Options = map[string]any{"num_ctx": c.numCtx}
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("llm http %d: %s", resp.StatusCode, truncate(string(respBody), 500))
+	}
+	var cr chatResponse
+	if err := json.Unmarshal(respBody, &cr); err != nil {
+		return "", fmt.Errorf("decode completions: %w", err)
+	}
+	if len(cr.Choices) == 0 {
+		return "", fmt.Errorf("llm: empty choices")
+	}
+	content := strings.TrimSpace(cr.Choices[0].Message.Content)
+	content = reThinking.ReplaceAllString(content, "")
+	content = strings.TrimSpace(content)
+	content = reFenceStart.ReplaceAllString(content, "")
+	content = reFenceEnd.ReplaceAllString(content, "")
+	return strings.TrimSpace(content), nil
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

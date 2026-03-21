@@ -6,6 +6,7 @@ import (
 	"github.com/mirofish-offline/lake/internal/adapters/noop"
 	"github.com/mirofish-offline/lake/internal/adapters/openai"
 	"github.com/mirofish-offline/lake/internal/adapters/projectstore"
+	"github.com/mirofish-offline/lake/internal/adapters/reportstore"
 	"github.com/mirofish-offline/lake/internal/adapters/simrunner"
 	"github.com/mirofish-offline/lake/internal/adapters/simulationfs"
 	"github.com/mirofish-offline/lake/internal/adapters/simulationprep"
@@ -14,6 +15,7 @@ import (
 	"github.com/mirofish-offline/lake/internal/config"
 	"github.com/mirofish-offline/lake/internal/ports"
 	"github.com/mirofish-offline/lake/internal/usecase/ontology"
+	"github.com/mirofish-offline/lake/internal/usecase/report"
 	"github.com/mirofish-offline/lake/internal/usecase/simulation"
 )
 
@@ -33,7 +35,7 @@ type Deps struct {
 	Graph    ports.GraphBuilder
 	Entity   ports.EntityReader
 	Sim      *simulation.Service
-	Reports  ports.ReportService
+	Reports  *report.Service
 	Tools    ports.GraphTools
 }
 
@@ -56,18 +58,18 @@ func NewDeps(cfg config.Config) (*Deps, error) {
 		Ontology:    ontology.New(llm),
 		Graph:       n,
 		Entity:      n,
-		Reports:     n,
+		Reports:     nil,
 		Tools:       n,
 		Neo4jHealth: n,
 	}
 
-	gs, err := neo4j.NewGraphStore(cfg, llm)
-	if err == nil {
+	if gs, err := neo4j.NewGraphStore(cfg, llm); err == nil {
 		d.Graph = gs
 		d.Neo4jHealth = gs
 		d.NeoCloser = gs.Close
 		d.GraphReady = true
 		d.Entity = neo4j.NewEntityReader(gs)
+		d.Tools = neo4j.NewGraphTools(gs)
 	}
 
 	simRepo, err := simulationfs.New(cfg.SimulationsDir())
@@ -87,6 +89,20 @@ func NewDeps(cfg config.Config) (*Deps, error) {
 		Profiles: simulationprep.NewProfileBuilder(cfg, llm),
 		Config:   simulationprep.NewConfigBuilder(cfg, llm),
 		Runtime:  rt,
+		GraphOK:  d.GraphReady,
+	}
+
+	repStore, err := reportstore.New(cfg.ReportsDir())
+	if err != nil {
+		return nil, err
+	}
+	d.Reports = &report.Service{
+		Projects: ps,
+		Tasks:    tasks,
+		SimRepo:  simRepo,
+		Repo:     repStore,
+		Tools:    d.Tools,
+		LLM:      llm,
 		GraphOK:  d.GraphReady,
 	}
 	return d, nil

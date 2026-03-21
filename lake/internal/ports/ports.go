@@ -84,10 +84,6 @@ type EntityReader interface {
 
 // --- Report (backend: report routes + report_agent + graph_tools) ---
 
-type ReportService interface {
-	Placeholder(ctx context.Context) error
-}
-
 type GraphTools interface {
 	SearchGraph(ctx context.Context, graphID, query string, limit int) (map[string]any, error)
 	GetGraphStatistics(ctx context.Context, graphID string) (map[string]any, error)

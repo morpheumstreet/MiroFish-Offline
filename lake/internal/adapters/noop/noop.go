@@ -188,11 +188,6 @@ func (Deps) GetEntitiesByType(ctx context.Context, graphID, entityType string, e
 	return nil, domain.ErrNotImplemented
 }
 
-func (Deps) Placeholder(ctx context.Context) error {
-	_ = ctx
-	return domain.ErrNotImplemented
-}
-
 func (Deps) SearchGraph(ctx context.Context, graphID, query string, limit int) (map[string]any, error) {
 	_ = ctx
 	_ = graphID
