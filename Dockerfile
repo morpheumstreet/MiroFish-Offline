@@ -11,7 +11,7 @@ RUN cd fishtank && bun run build \
   || (echo "fishtank build incomplete: missing dist/index.html" >&2 && exit 1)
 
 # --- Stage 2: Python runtime only; serve prebuilt SPA from fishtank/dist ---
-FROM python:3.11
+FROM python:3.11-slim-bookworm
 
 # 从 uv 官方镜像复制 uv
 COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/
@@ -23,16 +23,14 @@ WORKDIR /app
 
 COPY backend/ ./backend/
 
-# 若构建环境对 PyPI 的 TLS 异常（代理/证书替换导致 CN 与 Fastly 默认证书不匹配），
-# 请构建时传入: --build-arg UV_ALLOW_INSECURE_PYPI=1
-ARG UV_ALLOW_INSECURE_PYPI=0
-
+# Corporate proxies / SSL inspection often make PyPI/Fastly certs fail hostname check (e.g. cert CN
+# is *.fastly.net). --allow-insecure-host applies only to these origins and only relaxes verification
+# when it would otherwise fail; public CI (e.g. GitHub Actions) still gets normal TLS when certs match.
 RUN cd backend \
-  && if [ "$UV_ALLOW_INSECURE_PYPI" = "1" ]; then \
-       uv sync --allow-insecure-host pypi.org --allow-insecure-host files.pythonhosted.org; \
-     else \
-       uv sync; \
-     fi
+  && uv sync \
+    --allow-insecure-host pypi.org \
+    --allow-insecure-host files.pythonhosted.org \
+    --allow-insecure-host download.pytorch.org
 
 COPY --from=frontend-builder /app/fishtank/dist ./fishtank/dist
 

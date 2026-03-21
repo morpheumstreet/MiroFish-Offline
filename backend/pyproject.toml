@@ -22,6 +22,8 @@ dependencies = [
     # OASIS 社交媒体模拟
     "camel-oasis==0.2.5",
     "camel-ai==0.2.78",
+    # Direct dep so [tool.uv.sources] routes torch to CPU wheels (smaller Docker); camel-ai also needs torch.
+    "torch>=2.9.1,<2.10",
     
     # 文件处理
     "PyMuPDF>=1.24.0",
@@ -53,3 +55,12 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+# Docker / Linux: default PyPI torch pulls CUDA 12.x (~GBs). Pin torch to PyTorch's CPU index for smaller images.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]

@@ -65,7 +65,7 @@ docker exec mirofish-ollama ollama pull qwen2.5:32b
 docker exec mirofish-ollama ollama pull nomic-embed-text
 ```
 
-Open `http://localhost:3000` — that's it.
+Open `http://localhost:5001` — Flask serves the built SPA and `/api` on the same port in Docker.
 
 ### Option B: Manual
 

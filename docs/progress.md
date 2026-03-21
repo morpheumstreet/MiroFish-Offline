@@ -44,9 +44,10 @@ Migration from Zep Cloud + DashScope (Alibaba Qwen API) to local Neo4j CE + Olla
 
 - **TASK-018**: Deleted 4 dead `zep_*.py` files, deprecated `generate_python_code()` in ontology_generator, fixed Zep docstrings in graph.py, added `requests` to requirements.txt
 
-## PHASE 7 — Publish (TODO)
+## PHASE 7 — Publish (in progress)
 
 - **TASK-019**: Rename to MiroFish-Offline, add AGPL-3.0 license, publish to GitHub
+- **TASK-020**: Docker: multi-stage build (fishtank + slim Python), CPU torch via `uv` + PyTorch index; GHCR workflow and `scripts/docker-publish.sh` both use image name **`mirofish-offline`** (`ghcr.io/<owner>/mirofish-offline`)
 
 ## Files Created (New)
 
