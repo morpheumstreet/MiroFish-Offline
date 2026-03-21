@@ -113,7 +113,7 @@ bun install
 bun run dev
 ```
 
-Open the URL Bun prints (HTML bundler dev server). API calls use `http://localhost:5001` unless you set `BUN_PUBLIC_API_BASE_URL`.
+Open the URL Bun prints (HTML bundler dev server). Copy `fishtank/.env.example` to `fishtank/.env` so `BUN_PUBLIC_API_BASE_URL` points at Flask (same machine default: `http://127.0.0.1:5001`). When the SPA is built and served by Flask, API calls use the same origin automatically — no env needed.
 
 From the repo root (after `npm install`) you can run backend + fishtank together: `npm run dev` (requires Bun on `PATH` and `uv` for the backend script).
 

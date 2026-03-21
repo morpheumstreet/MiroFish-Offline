@@ -5,12 +5,27 @@ export type HttpClientOptions = {
   timeoutMs?: number
 }
 
+/**
+ * API base URL for `fetch`:
+ * - Empty string → same origin as the page (`/api/...`). Use when Flask (or any server) serves
+ *   the built SPA and the API together — works for any host, port, or reverse proxy.
+ * - Set `BUN_PUBLIC_API_BASE_URL` at build time for a fixed API origin (e.g. `bun run dev` on a
+ *   separate port from the backend — use `fishtank/.env` from `.env.example`).
+ */
 function resolveBaseURL(): string {
   const env = import.meta.env
   const explicit = env?.BUN_PUBLIC_API_BASE_URL
-  if (explicit) return String(explicit).replace(/\/$/, '')
-  if (env?.PROD) return ''
-  return 'http://localhost:5001'.replace(/\/$/, '')
+  if (explicit != null && String(explicit).trim() !== '') {
+    return String(explicit).replace(/\/$/, '')
+  }
+
+  const proto =
+    typeof globalThis.location?.protocol === 'string' ? globalThis.location.protocol : ''
+  if (proto === 'http:' || proto === 'https:') {
+    return ''
+  }
+
+  return ''
 }
 
 function joinURL(base: string, path: string): string {
@@ -18,6 +33,34 @@ function joinURL(base: string, path: string): string {
   const p = path.startsWith('/') ? path : `/${path}`
   if (!b) return p
   return `${b}${p}`
+}
+
+/** Absolute URL for logs/errors when base is relative (production same-origin). */
+function displayRequestUrl(requestUrl: string): string {
+  if (requestUrl.startsWith('http://') || requestUrl.startsWith('https://')) return requestUrl
+  if (typeof globalThis.location?.origin === 'string') return `${globalThis.location.origin}${requestUrl}`
+  return requestUrl
+}
+
+function isTransportFailure(e: unknown): boolean {
+  const name = e instanceof Error ? e.name : ''
+  const msg = e instanceof Error ? e.message : String(e)
+  return (
+    name === 'NetworkError' ||
+    (name === 'TypeError' && /fetch|network|load failed/i.test(msg)) ||
+    /NetworkError|Failed to fetch|Load failed|network error/i.test(msg)
+  )
+}
+
+function normalizeFetchFailure(e: unknown, requestUrl: string): Error {
+  if (!isTransportFailure(e)) return e instanceof Error ? e : new Error(String(e))
+  const original = e instanceof Error ? e.message : String(e)
+  const target = displayRequestUrl(requestUrl)
+  return new Error(
+    `${original} — Could not reach the API at ${target}. ` +
+      'If the UI is served by Flask/Docker, ensure the backend is running and use the same origin URL (not file://). ' +
+      'If you use `bun run dev`, set `BUN_PUBLIC_API_BASE_URL` in fishtank/.env to your API base (see fishtank/.env.example).'
+  )
 }
 
 function appendQuery(
@@ -82,10 +125,7 @@ export class HttpClient {
         throw new Error('Request timeout')
       }
       console.error('Response error:', e)
-      if (String((e as Error)?.message).includes('fetch')) {
-        console.error('Network error - please check your connection')
-      }
-      throw e
+      throw normalizeFetchFailure(e, url)
     } finally {
       clearTimeout(t)
     }

@@ -1,8 +1,9 @@
 services:
   mirofish:
     build: .
-    # Or use pre-built image (when available):
-    # image: ghcr.io/<github-username>/mirofish-offline:latest
+    # Tags local builds; matches Docker Hub. To use the pre-built image only, comment out `build: .`
+    # above and run: docker compose pull mirofish && docker compose up -d
+    image: sorajez/mirofish-offline:latest
     container_name: mirofish-offline
     env_file:
       - .env
