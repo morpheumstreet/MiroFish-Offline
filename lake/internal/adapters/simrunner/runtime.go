@@ -464,6 +464,11 @@ func (r *Runtime) Posts(ctx context.Context, simulationID, platform string, limi
 	return QueryPosts(r.simDir(simulationID), platform, limit, offset)
 }
 
+func (r *Runtime) Comments(ctx context.Context, simulationID, platform, postID string, limit, offset int) map[string]any {
+	_ = ctx
+	return QueryComments(r.simDir(simulationID), platform, postID, limit, offset)
+}
+
 func (r *Runtime) EnvStatus(ctx context.Context, simulationID string) map[string]any {
 	_ = ctx
 	c := NewIPCClient(r.simDir(simulationID))

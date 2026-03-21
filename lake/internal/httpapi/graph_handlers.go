@@ -1,90 +1,80 @@
 package httpapi
 
 import (
-	"net/http"
 	"strconv"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/mirofish-offline/lake/internal/domain"
 )
 
-func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) handleGetProject(c *fiber.Ctx) error {
+	id := c.Params("id")
 	if id == "" {
-		fail(w, http.StatusBadRequest, "missing project id")
-		return
+		return failResp(c, fiber.StatusBadRequest, "missing project id")
 	}
-	ctx := r.Context()
+	ctx := s.reqCtx(c)
 	p, err := s.deps.Projects.GetProject(ctx, id)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 	if p == nil {
-		fail(w, http.StatusNotFound, "Project does not exist: "+id)
-		return
+		return failResp(c, fiber.StatusNotFound, "Project does not exist: "+id)
 	}
-	ok(w, projectToAPI(p))
+	return okResp(c, projectToAPI(p))
 }
 
-func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleListProjects(c *fiber.Ctx) error {
 	limit := 50
-	if q := r.URL.Query().Get("limit"); q != "" {
+	if q := c.Query("limit"); q != "" {
 		if n, err := strconv.Atoi(q); err == nil && n > 0 {
 			limit = n
 		}
 	}
-	list, err := s.deps.Projects.ListProjects(r.Context(), limit)
+	list, err := s.deps.Projects.ListProjects(s.reqCtx(c), limit)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 	rows := make([]map[string]any, 0, len(list))
 	for i := range list {
 		rows = append(rows, projectToAPI(&list[i]))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return sendJSON(c, fiber.StatusOK, map[string]any{
 		"success": true,
 		"data":    rows,
 		"count":   len(rows),
 	})
 }
 
-func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) handleDeleteProject(c *fiber.Ctx) error {
+	id := c.Params("id")
 	if id == "" {
-		fail(w, http.StatusBadRequest, "missing project id")
-		return
+		return failResp(c, fiber.StatusBadRequest, "missing project id")
 	}
-	okDel, err := s.deps.Projects.DeleteProject(r.Context(), id)
+	okDel, err := s.deps.Projects.DeleteProject(s.reqCtx(c), id)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 	if !okDel {
-		fail(w, http.StatusNotFound, "Project does not exist or deletion failed: "+id)
-		return
+		return failResp(c, fiber.StatusNotFound, "Project does not exist or deletion failed: "+id)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return sendJSON(c, fiber.StatusOK, map[string]any{
 		"success": true,
 		"message": "Project deleted: " + id,
 	})
 }
 
-func (s *Server) handleResetProject(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) handleResetProject(c *fiber.Ctx) error {
+	id := c.Params("id")
 	if id == "" {
-		fail(w, http.StatusBadRequest, "missing project id")
-		return
+		return failResp(c, fiber.StatusBadRequest, "missing project id")
 	}
-	ctx := r.Context()
+	ctx := s.reqCtx(c)
 	p, err := s.deps.Projects.GetProject(ctx, id)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 	if p == nil {
-		fail(w, http.StatusNotFound, "Project does not exist: "+id)
-		return
+		return failResp(c, fiber.StatusNotFound, "Project does not exist: "+id)
 	}
 	if len(p.Ontology) > 0 {
 		p.Status = domain.StatusOntologyGenerated
@@ -95,45 +85,40 @@ func (s *Server) handleResetProject(w http.ResponseWriter, r *http.Request) {
 	p.GraphBuildTaskID = ""
 	p.Error = ""
 	if err := s.deps.Projects.SaveProject(ctx, p); err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return sendJSON(c, fiber.StatusOK, map[string]any{
 		"success": true,
 		"message": "Project reset: " + id,
 		"data":    projectToAPI(p),
 	})
 }
 
-func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) handleGetTask(c *fiber.Ctx) error {
+	id := c.Params("id")
 	if id == "" {
-		fail(w, http.StatusBadRequest, "missing task id")
-		return
+		return failResp(c, fiber.StatusBadRequest, "missing task id")
 	}
-	t, err := s.deps.Tasks.GetTask(r.Context(), id)
+	t, err := s.deps.Tasks.GetTask(s.reqCtx(c), id)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 	if t == nil {
-		fail(w, http.StatusNotFound, "Task does not exist: "+id)
-		return
+		return failResp(c, fiber.StatusNotFound, "Task does not exist: "+id)
 	}
-	ok(w, taskToAPI(t))
+	return okResp(c, taskToAPI(t))
 }
 
-func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
-	list, err := s.deps.Tasks.ListTasks(r.Context())
+func (s *Server) handleListTasks(c *fiber.Ctx) error {
+	list, err := s.deps.Tasks.ListTasks(s.reqCtx(c))
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 	rows := make([]map[string]any, 0, len(list))
 	for i := range list {
 		rows = append(rows, taskToAPI(&list[i]))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return sendJSON(c, fiber.StatusOK, map[string]any{
 		"success": true,
 		"data":    rows,
 		"count":   len(rows),
@@ -189,39 +174,33 @@ func taskToAPI(t *domain.Task) map[string]any {
 	}
 }
 
-func (s *Server) handleGetGraphData(w http.ResponseWriter, r *http.Request) {
-	gid := r.PathValue("graphId")
+func (s *Server) handleGetGraphData(c *fiber.Ctx) error {
+	gid := c.Params("graphId")
 	if gid == "" {
-		fail(w, http.StatusBadRequest, "missing graph id")
-		return
+		return failResp(c, fiber.StatusBadRequest, "missing graph id")
 	}
 	if !s.deps.GraphReady {
-		fail(w, http.StatusServiceUnavailable, "Graph storage not initialized — check Neo4j connection")
-		return
+		return failResp(c, fiber.StatusServiceUnavailable, "Graph storage not initialized — check Neo4j connection")
 	}
-	data, err := s.deps.Graph.GetGraphData(r.Context(), gid)
+	data, err := s.deps.Graph.GetGraphData(s.reqCtx(c), gid)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
-	ok(w, data)
+	return okResp(c, data)
 }
 
-func (s *Server) handleDeleteGraph(w http.ResponseWriter, r *http.Request) {
-	gid := r.PathValue("graphId")
+func (s *Server) handleDeleteGraph(c *fiber.Ctx) error {
+	gid := c.Params("graphId")
 	if gid == "" {
-		fail(w, http.StatusBadRequest, "missing graph id")
-		return
+		return failResp(c, fiber.StatusBadRequest, "missing graph id")
 	}
 	if !s.deps.GraphReady {
-		fail(w, http.StatusServiceUnavailable, "Graph storage not initialized — check Neo4j connection")
-		return
+		return failResp(c, fiber.StatusServiceUnavailable, "Graph storage not initialized — check Neo4j connection")
 	}
-	if err := s.deps.Graph.DeleteGraph(r.Context(), gid); err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+	if err := s.deps.Graph.DeleteGraph(s.reqCtx(c), gid); err != nil {
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return sendJSON(c, fiber.StatusOK, map[string]any{
 		"success": true,
 		"message": "Graph deleted: " + gid,
 	})

@@ -71,6 +71,16 @@ func (Disabled) Posts(ctx context.Context, simulationID, platform string, limit,
 	return map[string]any{"count": 0, "posts": []any{}}
 }
 
+func (Disabled) Comments(ctx context.Context, simulationID, platform, postID string, limit, offset int) map[string]any {
+	_ = ctx
+	_ = simulationID
+	_ = platform
+	_ = postID
+	_ = limit
+	_ = offset
+	return map[string]any{"count": 0, "comments": []any{}}
+}
+
 func (Disabled) EnvStatus(ctx context.Context, simulationID string) map[string]any {
 	_ = ctx
 	return map[string]any{

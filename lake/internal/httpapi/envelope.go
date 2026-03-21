@@ -1,8 +1,7 @@
 package httpapi
 
 import (
-	"encoding/json"
-	"net/http"
+	"github.com/gofiber/fiber/v2"
 )
 
 type envelope struct {
@@ -12,20 +11,18 @@ type envelope struct {
 	Error   string `json:"error,omitempty"`
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+func sendJSON(c *fiber.Ctx, status int, v any) error {
+	return c.Status(status).JSON(v)
 }
 
-func ok(w http.ResponseWriter, data any) {
-	writeJSON(w, http.StatusOK, envelope{Success: true, Data: data})
+func okResp(c *fiber.Ctx, data any) error {
+	return c.Status(fiber.StatusOK).JSON(envelope{Success: true, Data: data})
 }
 
-func okCount(w http.ResponseWriter, data any, count int) {
-	writeJSON(w, http.StatusOK, envelope{Success: true, Data: data, Count: count})
+func okCountResp(c *fiber.Ctx, data any, count int) error {
+	return c.Status(fiber.StatusOK).JSON(envelope{Success: true, Data: data, Count: count})
 }
 
-func fail(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, envelope{Success: false, Error: msg})
+func failResp(c *fiber.Ctx, status int, msg string) error {
+	return c.Status(status).JSON(envelope{Success: false, Error: msg})
 }

@@ -4,13 +4,28 @@ Structured port of the Python Flask app in `../backend/`. See [docs/ARCHITECTURE
 
 ## Run
 
-From repo root (so `LLM_*` / `NEO4J_*` match `.env` if exported):
+**Quick verify (no live services):**
+
+```bash
+bash lake/scripts/smoke.sh
+```
+
+**Local server** (needs `LLM_API_KEY`, `NEO4J_URI`, `NEO4J_PASSWORD` — usually from repo-root `.env`):
+
+```bash
+cd lake
+bash scripts/dev_run.sh
+```
+
+Or manually from repo root (so `LLM_*` / `NEO4J_*` match `.env` if exported):
 
 ```bash
 cd lake
 export $(grep -v '^#' ../.env | xargs) 2>/dev/null || true
 go run ./cmd/lake
 ```
+
+On first start, if Neo4j is slow or still starting, the process can sit for up to ~90s in the Neo4j schema bootstrap before `listening on http://...` appears — wait for that log line, then open `/health`.
 
 - **LLM URL:** set `LLM_BASE_URL` in `.env` (gitignored). Use any OpenAI-compatible server; you can pass `https://your-host.example` or `https://your-host.example/` and Lake normalizes to a `/v1` chat base. Do not commit real inference URLs—keep them in local `.env` only. Match `EMBEDDING_BASE_URL` to the same host (no `/v1`) if embeddings use Ollama-style `/api/embed`.
 - Defaults: `LAKE_HTTP_HOST` / `LAKE_HTTP_PORT` fall back to `FLASK_HOST` / `FLASK_PORT`, then `0.0.0.0:5001`.

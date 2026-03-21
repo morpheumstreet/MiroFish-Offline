@@ -70,6 +70,7 @@ type SimulationRuntime interface {
 	Timeline(ctx context.Context, simulationID string, startRound int, endRound *int) map[string]any
 	AgentStats(ctx context.Context, simulationID string) map[string]any
 	Posts(ctx context.Context, simulationID, platform string, limit, offset int) map[string]any
+	Comments(ctx context.Context, simulationID, platform, postID string, limit, offset int) map[string]any
 	EnvStatus(ctx context.Context, simulationID string) map[string]any
 	CloseEnv(ctx context.Context, simulationID string, timeoutSec int) map[string]any
 	InterviewBatch(ctx context.Context, simulationID string, interviews []map[string]any, platform *string, timeout float64) map[string]any

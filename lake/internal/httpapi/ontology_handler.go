@@ -2,10 +2,10 @@ package httpapi
 
 import (
 	"fmt"
-	"net/http"
 	"path/filepath"
 	"strings"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/mirofish-offline/lake/internal/domain"
 )
 
@@ -22,46 +22,47 @@ func allowedUploadExt(filename string) bool {
 	}
 }
 
-func (s *Server) handleOntologyGenerate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		fail(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	ctx := r.Context()
+func (s *Server) handleOntologyGenerate(c *fiber.Ctx) error {
+	ctx := s.reqCtx(c)
 	maxBytes := s.deps.Config.MaxUploadBytes
 	if maxBytes <= 0 {
 		maxBytes = 50 << 20
 	}
-	if err := r.ParseMultipartForm(maxBytes); err != nil {
-		fail(w, http.StatusBadRequest, "invalid multipart form: "+err.Error())
-		return
+	form, err := c.MultipartForm()
+	if err != nil {
+		return failResp(c, fiber.StatusBadRequest, "invalid multipart form: "+err.Error())
 	}
-	simulationRequirement := r.FormValue("simulation_requirement")
-	projectName := r.FormValue("project_name")
-	if projectName == "" {
-		projectName = "Unnamed Project"
+	defer func() { _ = form.RemoveAll() }()
+
+	simulationRequirement := ""
+	if v := form.Value["simulation_requirement"]; len(v) > 0 {
+		simulationRequirement = v[0]
 	}
-	additional := r.FormValue("additional_context")
+	projectName := "Unnamed Project"
+	if v := form.Value["project_name"]; len(v) > 0 && strings.TrimSpace(v[0]) != "" {
+		projectName = v[0]
+	}
+	additional := ""
+	if v := form.Value["additional_context"]; len(v) > 0 {
+		additional = v[0]
+	}
 	var additionalPtr *string
 	if strings.TrimSpace(additional) != "" {
 		additionalPtr = &additional
 	}
 
 	if strings.TrimSpace(simulationRequirement) == "" {
-		fail(w, http.StatusBadRequest, "Please provide simulation requirement description (simulation_requirement)")
-		return
+		return failResp(c, fiber.StatusBadRequest, "Please provide simulation requirement description (simulation_requirement)")
 	}
 
-	files := r.MultipartForm.File["files"]
+	files := form.File["files"]
 	if len(files) == 0 {
-		fail(w, http.StatusBadRequest, "Please upload at least one document file")
-		return
+		return failResp(c, fiber.StatusBadRequest, "Please upload at least one document file")
 	}
 
 	proj, err := s.deps.Projects.CreateProject(ctx, projectName)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 	pid := proj.ProjectID
 
@@ -79,21 +80,18 @@ func (s *Server) handleOntologyGenerate(w http.ResponseWriter, r *http.Request) 
 		f, err := fh.Open()
 		if err != nil {
 			_, _ = s.deps.Projects.DeleteProject(ctx, pid)
-			fail(w, http.StatusBadRequest, "open upload: "+err.Error())
-			return
+			return failResp(c, fiber.StatusBadRequest, "open upload: "+err.Error())
 		}
 		info, err := s.deps.Projects.SaveUploadedFile(ctx, pid, fh.Filename, f, fh.Size)
 		_ = f.Close()
 		if err != nil {
 			_, _ = s.deps.Projects.DeleteProject(ctx, pid)
-			fail(w, http.StatusInternalServerError, err.Error())
-			return
+			return failResp(c, fiber.StatusInternalServerError, err.Error())
 		}
 		raw, err := s.deps.Files.ExtractText(info.Path)
 		if err != nil {
 			_, _ = s.deps.Projects.DeleteProject(ctx, pid)
-			fail(w, http.StatusInternalServerError, "extract text: "+err.Error())
-			return
+			return failResp(c, fiber.StatusInternalServerError, "extract text: "+err.Error())
 		}
 		text := s.deps.Text.Preprocess(raw)
 		documentTexts = append(documentTexts, text)
@@ -106,23 +104,20 @@ func (s *Server) handleOntologyGenerate(w http.ResponseWriter, r *http.Request) 
 
 	if len(documentTexts) == 0 {
 		_, _ = s.deps.Projects.DeleteProject(ctx, pid)
-		fail(w, http.StatusBadRequest, "No documents successfully processed. Please check file format")
-		return
+		return failResp(c, fiber.StatusBadRequest, "No documents successfully processed. Please check file format")
 	}
 
 	proj.TotalTextLength = len(allText.String())
 	proj.SimulationRequirement = simulationRequirement
 	if err := s.deps.Projects.SaveExtractedText(ctx, pid, allText.String()); err != nil {
 		_, _ = s.deps.Projects.DeleteProject(ctx, pid)
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	ontology, err := s.deps.Ontology.Generate(ctx, documentTexts, simulationRequirement, additionalPtr)
 	if err != nil {
 		_, _ = s.deps.Projects.DeleteProject(ctx, pid)
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	entityTypes, _ := ontology["entity_types"].([]any)
@@ -142,11 +137,10 @@ func (s *Server) handleOntologyGenerate(w http.ResponseWriter, r *http.Request) 
 	proj.Status = domain.StatusOntologyGenerated
 	if err := s.deps.Projects.SaveProject(ctx, proj); err != nil {
 		_, _ = s.deps.Projects.DeleteProject(ctx, pid)
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	return sendJSON(c, fiber.StatusOK, map[string]any{
 		"success": true,
 		"data": map[string]any{
 			"project_id":        proj.ProjectID,

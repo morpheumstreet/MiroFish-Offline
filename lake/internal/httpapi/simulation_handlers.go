@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/mirofish-offline/lake/internal/ports"
 	"github.com/mirofish-offline/lake/internal/usecase/simulation"
 )
@@ -27,79 +27,74 @@ func optimizeInterviewPrompt(p string) string {
 	return interviewPromptPrefix + p
 }
 
-func (s *Server) requireGraph(w http.ResponseWriter) bool {
+func (s *Server) requireGraph(c *fiber.Ctx) bool {
 	if !s.deps.GraphReady || s.deps.Entity == nil {
-		fail(w, http.StatusServiceUnavailable, "Neo4j graph storage not available")
+		_ = failResp(c, fiber.StatusServiceUnavailable, "Neo4j graph storage not available")
 		return false
 	}
 	return true
 }
 
-func (s *Server) handleSimEntities(w http.ResponseWriter, r *http.Request) {
-	if !s.requireGraph(w) {
-		return
+func (s *Server) handleSimEntities(c *fiber.Ctx) error {
+	if !s.requireGraph(c) {
+		return nil
 	}
-	graphID := r.PathValue("graphId")
-	enrich := r.URL.Query().Get("enrich") != "false"
+	graphID := c.Params("graphId")
+	enrich := c.Query("enrich", "true") != "false"
 	var types []string
-	if ts := r.URL.Query().Get("entity_types"); ts != "" {
+	if ts := c.Query("entity_types"); ts != "" {
 		for _, p := range strings.Split(ts, ",") {
 			if t := strings.TrimSpace(p); t != "" {
 				types = append(types, t)
 			}
 		}
 	}
-	m, err := s.deps.Entity.FilterDefinedEntities(r.Context(), graphID, types, enrich)
+	m, err := s.deps.Entity.FilterDefinedEntities(s.reqCtx(c), graphID, types, enrich)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
-	ok(w, m)
+	return okResp(c, m)
 }
 
-func (s *Server) handleSimEntityDetail(w http.ResponseWriter, r *http.Request) {
-	if !s.requireGraph(w) {
-		return
+func (s *Server) handleSimEntityDetail(c *fiber.Ctx) error {
+	if !s.requireGraph(c) {
+		return nil
 	}
-	graphID := r.PathValue("graphId")
-	uuid := r.PathValue("entityUUID")
-	m, err := s.deps.Entity.GetEntityWithContext(r.Context(), graphID, uuid)
+	graphID := c.Params("graphId")
+	uuid := c.Params("entityUUID")
+	m, err := s.deps.Entity.GetEntityWithContext(s.reqCtx(c), graphID, uuid)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 	if m == nil {
-		fail(w, http.StatusNotFound, "Entity does not exist: "+uuid)
-		return
+		return failResp(c, fiber.StatusNotFound, "Entity does not exist: "+uuid)
 	}
-	ok(w, m)
+	return okResp(c, m)
 }
 
-func (s *Server) handleSimEntitiesByType(w http.ResponseWriter, r *http.Request) {
-	if !s.requireGraph(w) {
-		return
+func (s *Server) handleSimEntitiesByType(c *fiber.Ctx) error {
+	if !s.requireGraph(c) {
+		return nil
 	}
-	graphID := r.PathValue("graphId")
-	etype := r.PathValue("entityType")
-	enrich := r.URL.Query().Get("enrich") != "false"
-	list, err := s.deps.Entity.GetEntitiesByType(r.Context(), graphID, etype, enrich)
+	graphID := c.Params("graphId")
+	etype := c.Params("entityType")
+	enrich := c.Query("enrich", "true") != "false"
+	list, err := s.deps.Entity.GetEntitiesByType(s.reqCtx(c), graphID, etype, enrich)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
-	ok(w, map[string]any{"entity_type": etype, "count": len(list), "entities": list})
+	return okResp(c, map[string]any{"entity_type": etype, "count": len(list), "entities": list})
 }
 
-func (s *Server) handleSimCreate(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSimCreate(c *fiber.Ctx) error {
 	var body struct {
 		ProjectID     string `json:"project_id"`
 		GraphID       string `json:"graph_id"`
 		EnableTwitter *bool  `json:"enable_twitter"`
 		EnableReddit  *bool  `json:"enable_reddit"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		fail(w, http.StatusBadRequest, "invalid JSON")
-		return
+	if err := c.BodyParser(&body); err != nil {
+		return failResp(c, fiber.StatusBadRequest, "invalid JSON")
 	}
 	tw, rd := true, true
 	if body.EnableTwitter != nil {
@@ -108,23 +103,20 @@ func (s *Server) handleSimCreate(w http.ResponseWriter, r *http.Request) {
 	if body.EnableReddit != nil {
 		rd = *body.EnableReddit
 	}
-	st, err := s.deps.Sim.Create(r.Context(), body.ProjectID, body.GraphID, tw, rd)
+	st, err := s.deps.Sim.Create(s.reqCtx(c), body.ProjectID, body.GraphID, tw, rd)
 	if err != nil {
 		if strings.Contains(err.Error(), "does not exist") {
-			fail(w, http.StatusNotFound, err.Error())
-			return
+			return failResp(c, fiber.StatusNotFound, err.Error())
 		}
 		if strings.Contains(err.Error(), "not built") || strings.Contains(err.Error(), "required") {
-			fail(w, http.StatusBadRequest, err.Error())
-			return
+			return failResp(c, fiber.StatusBadRequest, err.Error())
 		}
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
-	ok(w, simulation.StateAsMap(st))
+	return okResp(c, simulation.StateAsMap(st))
 }
 
-func (s *Server) handleSimPrepare(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSimPrepare(c *fiber.Ctx) error {
 	var body struct {
 		SimulationID         string   `json:"simulation_id"`
 		EntityTypes          []string `json:"entity_types"`
@@ -132,13 +124,11 @@ func (s *Server) handleSimPrepare(w http.ResponseWriter, r *http.Request) {
 		ParallelProfileCount *int     `json:"parallel_profile_count"`
 		ForceRegenerate      bool     `json:"force_regenerate"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		fail(w, http.StatusBadRequest, "invalid JSON")
-		return
+	if err := c.BodyParser(&body); err != nil {
+		return failResp(c, fiber.StatusBadRequest, "invalid JSON")
 	}
 	if body.SimulationID == "" {
-		fail(w, http.StatusBadRequest, "Please provide simulation_id")
-		return
+		return failResp(c, fiber.StatusBadRequest, "Please provide simulation_id")
 	}
 	useLLM := true
 	if body.UseLLMForProfiles != nil {
@@ -148,91 +138,77 @@ func (s *Server) handleSimPrepare(w http.ResponseWriter, r *http.Request) {
 	if body.ParallelProfileCount != nil && *body.ParallelProfileCount > 0 {
 		parallel = *body.ParallelProfileCount
 	}
-	data, err := s.deps.Sim.Prepare(r.Context(), body.SimulationID, body.EntityTypes, useLLM, parallel, body.ForceRegenerate)
+	data, err := s.deps.Sim.Prepare(s.reqCtx(c), body.SimulationID, body.EntityTypes, useLLM, parallel, body.ForceRegenerate)
 	if err != nil {
 		if strings.Contains(err.Error(), "does not exist") {
-			fail(w, http.StatusNotFound, err.Error())
-			return
+			return failResp(c, fiber.StatusNotFound, err.Error())
 		}
 		if strings.Contains(err.Error(), "missing") || strings.Contains(err.Error(), "not available") {
-			fail(w, http.StatusBadRequest, err.Error())
-			return
+			return failResp(c, fiber.StatusBadRequest, err.Error())
 		}
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
-	ok(w, data)
+	return okResp(c, data)
 }
 
-func (s *Server) handleSimPrepareStatus(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSimPrepareStatus(c *fiber.Ctx) error {
 	var body struct {
 		TaskID       string `json:"task_id"`
 		SimulationID string `json:"simulation_id"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	data, err := s.deps.Sim.PrepareStatus(r.Context(), body.TaskID, body.SimulationID)
+	_ = c.BodyParser(&body)
+	data, err := s.deps.Sim.PrepareStatus(s.reqCtx(c), body.TaskID, body.SimulationID)
 	if err != nil {
 		if strings.Contains(err.Error(), "required") {
-			fail(w, http.StatusBadRequest, err.Error())
-			return
+			return failResp(c, fiber.StatusBadRequest, err.Error())
 		}
-		fail(w, http.StatusNotFound, err.Error())
-		return
+		return failResp(c, fiber.StatusNotFound, err.Error())
 	}
-	ok(w, data)
+	return okResp(c, data)
 }
 
-func (s *Server) handleSimGet(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("simulationId")
-	_, m, err := s.deps.Sim.Get(r.Context(), id)
+func (s *Server) handleSimGet(c *fiber.Ctx) error {
+	id := c.Params("simulationId")
+	_, m, err := s.deps.Sim.Get(s.reqCtx(c), id)
 	if err != nil {
-		fail(w, http.StatusNotFound, err.Error())
-		return
+		return failResp(c, fiber.StatusNotFound, err.Error())
 	}
-	ok(w, m)
+	return okResp(c, m)
 }
 
-func (s *Server) handleSimList(w http.ResponseWriter, r *http.Request) {
-	pid := r.URL.Query().Get("project_id")
-	list, err := s.deps.Sim.List(r.Context(), pid)
+func (s *Server) handleSimList(c *fiber.Ctx) error {
+	pid := c.Query("project_id")
+	list, err := s.deps.Sim.List(s.reqCtx(c), pid)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
-	okCount(w, list, len(list))
+	return okCountResp(c, list, len(list))
 }
 
-func (s *Server) handleSimHistory(w http.ResponseWriter, r *http.Request) {
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	list, err := s.deps.Sim.History(r.Context(), limit)
+func (s *Server) handleSimHistory(c *fiber.Ctx) error {
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	list, err := s.deps.Sim.History(s.reqCtx(c), limit)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
-	okCount(w, list, len(list))
+	return okCountResp(c, list, len(list))
 }
 
-func (s *Server) handleSimProfiles(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("simulationId")
-	platform := r.URL.Query().Get("platform")
-	if platform == "" {
-		platform = "reddit"
-	}
-	raw, _, okFile, err := s.deps.Sim.ProfilesFile(r.Context(), id, platform)
+func (s *Server) handleSimProfiles(c *fiber.Ctx) error {
+	id := c.Params("simulationId")
+	platform := c.Query("platform", "reddit")
+	raw, _, okFile, err := s.deps.Sim.ProfilesFile(s.reqCtx(c), id, platform)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 	if !okFile {
-		ok(w, map[string]any{"platform": platform, "count": 0, "profiles": []any{}})
-		return
+		return okResp(c, map[string]any{"platform": platform, "count": 0, "profiles": []any{}})
 	}
 	profiles, err := decodeProfilesFile(platform, raw)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
-	ok(w, map[string]any{"platform": platform, "count": len(profiles), "profiles": profiles})
+	return okResp(c, map[string]any{"platform": platform, "count": len(profiles), "profiles": profiles})
 }
 
 func decodeProfilesFile(platform string, raw []byte) ([]any, error) {
@@ -268,14 +244,11 @@ func decodeProfilesFile(platform string, raw []byte) ([]any, error) {
 	return out, nil
 }
 
-func (s *Server) handleSimProfilesRealtime(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("simulationId")
-	platform := r.URL.Query().Get("platform")
-	if platform == "" {
-		platform = "reddit"
-	}
-	raw, mod, okFile, err := s.deps.Sim.ProfilesFile(r.Context(), id, platform)
-	st, _ := s.deps.Sim.Repo.Load(r.Context(), id)
+func (s *Server) handleSimProfilesRealtime(c *fiber.Ctx) error {
+	id := c.Params("simulationId")
+	platform := c.Query("platform", "reddit")
+	raw, mod, okFile, err := s.deps.Sim.ProfilesFile(s.reqCtx(c), id, platform)
+	st, _ := s.deps.Sim.Repo.Load(s.reqCtx(c), id)
 	var totalExpected any
 	isGen := false
 	if st != nil {
@@ -293,26 +266,25 @@ func (s *Server) handleSimProfilesRealtime(w http.ResponseWriter, r *http.Reques
 			profiles = append(profiles, p...)
 		}
 	}
-	ok(w, map[string]any{
+	return okResp(c, map[string]any{
 		"simulation_id": id, "platform": platform, "count": len(profiles),
 		"total_expected": totalExpected, "is_generating": isGen,
 		"file_exists": okFile, "file_modified_at": modStr, "profiles": profiles,
 	})
 }
 
-func (s *Server) handleSimConfig(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("simulationId")
-	cfg, err := s.deps.Sim.ReadConfigJSON(r.Context(), id)
+func (s *Server) handleSimConfig(c *fiber.Ctx) error {
+	id := c.Params("simulationId")
+	cfg, err := s.deps.Sim.ReadConfigJSON(s.reqCtx(c), id)
 	if err != nil || cfg == nil {
-		fail(w, http.StatusNotFound, "Simulation configuration does not exist. Please call /prepare first")
-		return
+		return failResp(c, fiber.StatusNotFound, "Simulation configuration does not exist. Please call /prepare first")
 	}
-	ok(w, cfg)
+	return okResp(c, cfg)
 }
 
-func (s *Server) handleSimConfigRealtime(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("simulationId")
-	ctx := r.Context()
+func (s *Server) handleSimConfigRealtime(c *fiber.Ctx) error {
+	id := c.Params("simulationId")
+	ctx := s.reqCtx(c)
 	mod, okFile := s.deps.Sim.Repo.StatFile(ctx, id, "simulation_config.json")
 	var raw []byte
 	var err error
@@ -369,42 +341,38 @@ func (s *Server) handleSimConfigRealtime(w http.ResponseWriter, r *http.Request)
 			}
 		}
 	}
-	ok(w, out)
+	return okResp(c, out)
 }
 
-func (s *Server) handleSimConfigDownload(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("simulationId")
+func (s *Server) handleSimConfigDownload(c *fiber.Ctx) error {
+	id := c.Params("simulationId")
 	path := filepath.Join(s.deps.Sim.Repo.SimulationsRoot(), id, "simulation_config.json")
-	http.ServeFile(w, r, path)
+	return c.SendFile(path)
 }
 
-func (s *Server) handleSimScriptDownload(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("scriptName")
+func (s *Server) handleSimScriptDownload(c *fiber.Ctx) error {
+	name := c.Params("scriptName")
 	allowed := map[string]struct{}{
 		"run_twitter_simulation.py": {}, "run_reddit_simulation.py": {},
 		"run_parallel_simulation.py": {}, "action_logger.py": {},
 	}
 	if _, ok := allowed[name]; !ok {
-		fail(w, http.StatusBadRequest, "Unknown script: "+name)
-		return
+		return failResp(c, fiber.StatusBadRequest, "Unknown script: "+name)
 	}
 	dir := s.deps.Config.ScriptsDir()
 	if dir == "" {
-		fail(w, http.StatusInternalServerError, "scripts directory not configured")
-		return
+		return failResp(c, fiber.StatusInternalServerError, "scripts directory not configured")
 	}
 	path := filepath.Join(dir, name)
 	if _, err := os.Stat(path); err != nil {
-		fail(w, http.StatusNotFound, "Script file does not exist")
-		return
+		return failResp(c, fiber.StatusNotFound, "Script file does not exist")
 	}
-	w.Header().Set("Content-Disposition", "attachment; filename="+name)
-	http.ServeFile(w, r, path)
+	return c.Download(path, name)
 }
 
-func (s *Server) handleSimGenerateProfiles(w http.ResponseWriter, r *http.Request) {
-	if !s.requireGraph(w) {
-		return
+func (s *Server) handleSimGenerateProfiles(c *fiber.Ctx) error {
+	if !s.requireGraph(c) {
+		return nil
 	}
 	var body struct {
 		GraphID     string   `json:"graph_id"`
@@ -412,9 +380,8 @@ func (s *Server) handleSimGenerateProfiles(w http.ResponseWriter, r *http.Reques
 		UseLLM      *bool    `json:"use_llm"`
 		Platform    string   `json:"platform"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.GraphID == "" {
-		fail(w, http.StatusBadRequest, "graph_id required")
-		return
+	if err := c.BodyParser(&body); err != nil || body.GraphID == "" {
+		return failResp(c, fiber.StatusBadRequest, "graph_id required")
 	}
 	useLLM := true
 	if body.UseLLM != nil {
@@ -424,15 +391,14 @@ func (s *Server) handleSimGenerateProfiles(w http.ResponseWriter, r *http.Reques
 	if pl == "" {
 		pl = "reddit"
 	}
-	data, err := s.deps.Sim.GenerateProfilesStandalone(r.Context(), body.GraphID, body.EntityTypes, useLLM, pl)
+	data, err := s.deps.Sim.GenerateProfilesStandalone(s.reqCtx(c), body.GraphID, body.EntityTypes, useLLM, pl)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
-	ok(w, data)
+	return okResp(c, data)
 }
 
-func (s *Server) handleSimStart(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSimStart(c *fiber.Ctx) error {
 	var body struct {
 		SimulationID            string  `json:"simulation_id"`
 		Platform                string  `json:"platform"`
@@ -440,9 +406,8 @@ func (s *Server) handleSimStart(w http.ResponseWriter, r *http.Request) {
 		EnableGraphMemoryUpdate bool    `json:"enable_graph_memory_update"`
 		Force                   bool    `json:"force"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.SimulationID == "" {
-		fail(w, http.StatusBadRequest, "Please provide simulation_id")
-		return
+	if err := c.BodyParser(&body); err != nil || body.SimulationID == "" {
+		return failResp(c, fiber.StatusBadRequest, "Please provide simulation_id")
 	}
 	pl := body.Platform
 	if pl == "" {
@@ -453,67 +418,64 @@ func (s *Server) handleSimStart(w http.ResponseWriter, r *http.Request) {
 		m := int(body.MaxRounds)
 		mr = &m
 	}
-	st, _ := s.deps.Sim.Repo.Load(r.Context(), body.SimulationID)
+	st, _ := s.deps.Sim.Repo.Load(s.reqCtx(c), body.SimulationID)
 	gid := ""
 	if st != nil {
 		gid = st.GraphID
 	}
-	out, err := s.deps.Sim.Start(r.Context(), body.SimulationID, pl, mr, body.EnableGraphMemoryUpdate, gid, body.Force)
+	out, err := s.deps.Sim.Start(s.reqCtx(c), body.SimulationID, pl, mr, body.EnableGraphMemoryUpdate, gid, body.Force)
 	if err != nil {
-		fail(w, http.StatusBadRequest, err.Error())
-		return
+		return failResp(c, fiber.StatusBadRequest, err.Error())
 	}
-	ok(w, out)
+	return okResp(c, out)
 }
 
-func (s *Server) handleSimStop(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSimStop(c *fiber.Ctx) error {
 	var body struct {
 		SimulationID string `json:"simulation_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.SimulationID == "" {
-		fail(w, http.StatusBadRequest, "Please provide simulation_id")
-		return
+	if err := c.BodyParser(&body); err != nil || body.SimulationID == "" {
+		return failResp(c, fiber.StatusBadRequest, "Please provide simulation_id")
 	}
-	out, err := s.deps.Sim.Stop(r.Context(), body.SimulationID)
+	out, err := s.deps.Sim.Stop(s.reqCtx(c), body.SimulationID)
 	if err != nil {
-		fail(w, http.StatusBadRequest, err.Error())
-		return
+		return failResp(c, fiber.StatusBadRequest, err.Error())
 	}
-	ok(w, out)
+	return okResp(c, out)
 }
 
-func (s *Server) handleSimRunStatus(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("simulationId")
-	ok(w, s.deps.Sim.Runtime.RunState(r.Context(), id))
+func (s *Server) handleSimRunStatus(c *fiber.Ctx) error {
+	id := c.Params("simulationId")
+	return okResp(c, s.deps.Sim.Runtime.RunState(s.reqCtx(c), id))
 }
 
-func (s *Server) handleSimRunStatusDetail(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("simulationId")
-	pl := r.URL.Query().Get("platform")
-	ok(w, s.deps.Sim.Runtime.RunStateDetail(r.Context(), id, pl))
+func (s *Server) handleSimRunStatusDetail(c *fiber.Ctx) error {
+	id := c.Params("simulationId")
+	pl := c.Query("platform")
+	return okResp(c, s.deps.Sim.Runtime.RunStateDetail(s.reqCtx(c), id, pl))
 }
 
-func (s *Server) handleSimActions(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("simulationId")
-	q := parseActionQuery(r)
-	ok(w, s.deps.Sim.Runtime.Actions(r.Context(), id, q))
+func (s *Server) handleSimActions(c *fiber.Ctx) error {
+	id := c.Params("simulationId")
+	q := parseActionQuery(c)
+	return okResp(c, s.deps.Sim.Runtime.Actions(s.reqCtx(c), id, q))
 }
 
-func parseActionQuery(r *http.Request) ports.ActionQuery {
+func parseActionQuery(c *fiber.Ctx) ports.ActionQuery {
 	q := ports.ActionQuery{Limit: 100, Offset: 0}
-	if v := r.URL.Query().Get("limit"); v != "" {
+	if v := c.Query("limit"); v != "" {
 		q.Limit, _ = strconv.Atoi(v)
 	}
-	if v := r.URL.Query().Get("offset"); v != "" {
+	if v := c.Query("offset"); v != "" {
 		q.Offset, _ = strconv.Atoi(v)
 	}
-	q.Platform = r.URL.Query().Get("platform")
-	if v := r.URL.Query().Get("agent_id"); v != "" {
+	q.Platform = c.Query("platform")
+	if v := c.Query("agent_id"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			q.AgentID = &n
 		}
 	}
-	if v := r.URL.Query().Get("round_num"); v != "" {
+	if v := c.Query("round_num"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			q.RoundNum = &n
 		}
@@ -521,87 +483,84 @@ func parseActionQuery(r *http.Request) ports.ActionQuery {
 	return q
 }
 
-func (s *Server) handleSimTimeline(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("simulationId")
-	start, _ := strconv.Atoi(r.URL.Query().Get("start_round"))
+func (s *Server) handleSimTimeline(c *fiber.Ctx) error {
+	id := c.Params("simulationId")
+	start, _ := strconv.Atoi(c.Query("start_round"))
 	var end *int
-	if v := r.URL.Query().Get("end_round"); v != "" {
+	if v := c.Query("end_round"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			end = &n
 		}
 	}
-	ok(w, s.deps.Sim.Runtime.Timeline(r.Context(), id, start, end))
+	return okResp(c, s.deps.Sim.Runtime.Timeline(s.reqCtx(c), id, start, end))
 }
 
-func (s *Server) handleSimAgentStats(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("simulationId")
-	ok(w, s.deps.Sim.Runtime.AgentStats(r.Context(), id))
+func (s *Server) handleSimAgentStats(c *fiber.Ctx) error {
+	id := c.Params("simulationId")
+	return okResp(c, s.deps.Sim.Runtime.AgentStats(s.reqCtx(c), id))
 }
 
-func (s *Server) handleSimPosts(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("simulationId")
-	pl := r.URL.Query().Get("platform")
-	if pl == "" {
-		pl = "reddit"
-	}
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	off, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	ok(w, s.deps.Sim.Runtime.Posts(r.Context(), id, pl, limit, off))
+func (s *Server) handleSimPosts(c *fiber.Ctx) error {
+	id := c.Params("simulationId")
+	pl := c.Query("platform", "reddit")
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	off, _ := strconv.Atoi(c.Query("offset"))
+	return okResp(c, s.deps.Sim.Runtime.Posts(s.reqCtx(c), id, pl, limit, off))
 }
 
-func (s *Server) handleSimComments(w http.ResponseWriter, r *http.Request) {
-	ok(w, map[string]any{"count": 0, "comments": []any{}})
+func (s *Server) handleSimComments(c *fiber.Ctx) error {
+	id := c.Params("simulationId")
+	pl := c.Query("platform", "reddit")
+	postID := c.Query("post_id")
+	limit, _ := strconv.Atoi(c.Query("limit", "50"))
+	off, _ := strconv.Atoi(c.Query("offset", "0"))
+	return okResp(c, s.deps.Sim.Runtime.Comments(s.reqCtx(c), id, pl, postID, limit, off))
 }
 
-func (s *Server) handleSimEnvStatus(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSimEnvStatus(c *fiber.Ctx) error {
 	var body struct {
 		SimulationID string `json:"simulation_id"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	_ = c.BodyParser(&body)
 	if body.SimulationID == "" {
-		fail(w, http.StatusBadRequest, "Please provide simulation_id")
-		return
+		return failResp(c, fiber.StatusBadRequest, "Please provide simulation_id")
 	}
-	ok(w, s.deps.Sim.Runtime.EnvStatus(r.Context(), body.SimulationID))
+	return okResp(c, s.deps.Sim.Runtime.EnvStatus(s.reqCtx(c), body.SimulationID))
 }
 
-func (s *Server) handleSimCloseEnv(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSimCloseEnv(c *fiber.Ctx) error {
 	var body struct {
 		SimulationID string `json:"simulation_id"`
 		Timeout      int    `json:"timeout"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	_ = c.BodyParser(&body)
 	if body.SimulationID == "" {
-		fail(w, http.StatusBadRequest, "Please provide simulation_id")
-		return
+		return failResp(c, fiber.StatusBadRequest, "Please provide simulation_id")
 	}
-	ok(w, s.deps.Sim.Runtime.CloseEnv(r.Context(), body.SimulationID, body.Timeout))
+	return okResp(c, s.deps.Sim.Runtime.CloseEnv(s.reqCtx(c), body.SimulationID, body.Timeout))
 }
 
-func (s *Server) handleSimInterviewBatch(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSimInterviewBatch(c *fiber.Ctx) error {
 	var body struct {
 		SimulationID string           `json:"simulation_id"`
 		Interviews   []map[string]any `json:"interviews"`
 		Platform     *string          `json:"platform"`
 		Timeout      float64          `json:"timeout"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.SimulationID == "" {
-		fail(w, http.StatusBadRequest, "invalid body")
-		return
+	if err := c.BodyParser(&body); err != nil || body.SimulationID == "" {
+		return failResp(c, fiber.StatusBadRequest, "invalid body")
 	}
 	if len(body.Interviews) == 0 {
-		fail(w, http.StatusBadRequest, "Please provide interviews")
-		return
+		return failResp(c, fiber.StatusBadRequest, "Please provide interviews")
 	}
 	for i := range body.Interviews {
 		if p, ok := body.Interviews[i]["prompt"].(string); ok {
 			body.Interviews[i]["prompt"] = optimizeInterviewPrompt(p)
 		}
 	}
-	res := s.deps.Sim.Runtime.InterviewBatch(r.Context(), body.SimulationID, body.Interviews, body.Platform, body.Timeout)
+	res := s.deps.Sim.Runtime.InterviewBatch(s.reqCtx(c), body.SimulationID, body.Interviews, body.Platform, body.Timeout)
 	if fmt.Sprint(res["success"]) == "false" {
-		writeJSON(w, http.StatusBadRequest, envelope{Success: false, Error: fmt.Sprint(res["error"])})
-		return
+		return sendJSON(c, fiber.StatusBadRequest, envelope{Success: false, Error: fmt.Sprint(res["error"])})
 	}
-	writeJSON(w, http.StatusOK, envelope{Success: true, Data: res})
+	return sendJSON(c, fiber.StatusOK, envelope{Success: true, Data: res})
 }

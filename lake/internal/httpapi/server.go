@@ -1,141 +1,173 @@
 package httpapi
 
 import (
-	"net/http"
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/mirofish-offline/lake/internal/app"
 )
 
 type Server struct {
 	deps *app.Deps
-	mux  *http.ServeMux
+	app  *fiber.App
 }
 
 func NewServer(deps *app.Deps) *Server {
-	s := &Server{deps: deps, mux: http.NewServeMux()}
+	bodyLimit := int(deps.Config.MaxUploadBytes)
+	if bodyLimit <= 0 {
+		bodyLimit = 50 << 20
+	}
+	app := fiber.New(fiber.Config{
+		BodyLimit:   bodyLimit,
+		ReadTimeout: 300 * time.Second,
+	})
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "*",
+		AllowMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+		AllowHeaders: "Content-Type, Authorization",
+	}))
+	s := &Server{deps: deps, app: app}
 	s.routes()
 	return s
 }
 
-func (s *Server) Handler() http.Handler {
-	return s.cors(s.mux)
+func (s *Server) App() *fiber.App {
+	return s.app
+}
+
+func (s *Server) reqCtx(c *fiber.Ctx) context.Context {
+	if cx := c.UserContext(); cx != nil {
+		return cx
+	}
+	return context.Background()
 }
 
 func (s *Server) routes() {
-	s.mux.HandleFunc("GET /health", s.handleHealth)
+	s.app.Get("/health", s.handleHealth)
 
-	api := http.NewServeMux()
-	s.mountGraph(api)
-	s.mountSimulation(api)
-	s.mountReport(api)
+	api := s.app.Group("/api")
+	s.mountGraph(api.Group("/graph"))
+	s.mountSimulation(api.Group("/simulation"))
+	s.mountReport(api.Group("/report"))
 
-	s.mux.Handle("/api/", http.StripPrefix("/api", api))
-}
-
-func (s *Server) cors(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
+	d := strings.TrimSpace(os.Getenv("LAKE_FRONTEND_DIST"))
+	if d != "" {
+		if _, err := os.Stat(filepath.Join(d, "index.html")); err == nil {
+			s.mountSPA(d)
 		}
-		next.ServeHTTP(w, r)
-	})
+	}
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+func (s *Server) mountGraph(g fiber.Router) {
+	g.Get("/project/:id", s.handleGetProject)
+	g.Get("/project/list", s.handleListProjects)
+	g.Delete("/project/:id", s.handleDeleteProject)
+	g.Post("/project/:id/reset", s.handleResetProject)
+	g.Post("/ontology/generate", s.handleOntologyGenerate)
+	g.Post("/build", s.handleGraphBuild)
+	g.Get("/task/:id", s.handleGetTask)
+	g.Get("/tasks", s.handleListTasks)
+	g.Get("/data/:graphId", s.handleGetGraphData)
+	g.Delete("/delete/:graphId", s.handleDeleteGraph)
+	g.Get("/entities/:graphId/by-type/:entityType", s.handleSimEntitiesByType)
+	g.Get("/entities/:graphId/:entityUUID", s.handleSimEntityDetail)
+	g.Get("/entities/:graphId", s.handleSimEntities)
+}
+
+func (s *Server) mountSimulation(sim fiber.Router) {
+	sim.Post("/create", s.handleSimCreate)
+	sim.Post("/prepare", s.handleSimPrepare)
+	sim.Post("/prepare/status", s.handleSimPrepareStatus)
+	sim.Post("/generate-profiles", s.handleSimGenerateProfiles)
+	sim.Post("/start", s.handleSimStart)
+	sim.Post("/stop", s.handleSimStop)
+	sim.Post("/env-status", s.handleSimEnvStatus)
+	sim.Post("/close-env", s.handleSimCloseEnv)
+	sim.Post("/interview/batch", s.handleSimInterviewBatch)
+
+	ent := sim.Group("/entities")
+	ent.Get("/:graphId/by-type/:entityType", s.handleSimEntitiesByType)
+	ent.Get("/:graphId/:entityUUID", s.handleSimEntityDetail)
+	ent.Get("/:graphId", s.handleSimEntities)
+
+	sim.Get("/list", s.handleSimList)
+	sim.Get("/history", s.handleSimHistory)
+	sim.Get("/download/script/:scriptName", s.handleSimScriptDownload)
+	sim.Get("/:simulationId/profiles/realtime", s.handleSimProfilesRealtime)
+	sim.Get("/:simulationId/profiles", s.handleSimProfiles)
+	sim.Get("/:simulationId/config/realtime", s.handleSimConfigRealtime)
+	sim.Get("/:simulationId/config/download", s.handleSimConfigDownload)
+	sim.Get("/:simulationId/config", s.handleSimConfig)
+	sim.Get("/:simulationId/run-status/detail", s.handleSimRunStatusDetail)
+	sim.Get("/:simulationId/run-status", s.handleSimRunStatus)
+	sim.Get("/:simulationId/actions", s.handleSimActions)
+	sim.Get("/:simulationId/timeline", s.handleSimTimeline)
+	sim.Get("/:simulationId/agent-stats", s.handleSimAgentStats)
+	sim.Get("/:simulationId/posts", s.handleSimPosts)
+	sim.Get("/:simulationId/comments", s.handleSimComments)
+	sim.Get("/:simulationId", s.handleSimGet)
+}
+
+func (s *Server) mountReport(r fiber.Router) {
+	r.Get("/generate/status", s.handleReportGenerateStatusGET)
+	r.Post("/generate/status", s.handleReportGenerateStatusPOST)
+	r.Get("/check", s.handleReportCheck)
+	r.Get("/by-simulation", s.handleReportBySimulation)
+	r.Get("/list", s.handleReportList)
+	r.Post("/tools/search", s.handleReportToolsSearch)
+	r.Post("/tools/statistics", s.handleReportToolsStatistics)
+	r.Post("/generate", s.handleReportGenerate)
+	r.Post("/chat", s.handleReportChat)
+	r.Get("/:reportId/agent-log/stream", s.handleReportAgentLogStream)
+	r.Get("/:reportId/console-log/stream", s.handleReportConsoleLogStream)
+	r.Get("/:reportId/agent-log", s.handleReportAgentLog)
+	r.Get("/:reportId/console-log", s.handleReportConsoleLog)
+	r.Get("/:reportId/download", s.handleReportDownload)
+	r.Get("/:reportId/progress", s.handleReportProgress)
+	r.Get("/:reportId/sections", s.handleReportSections)
+	r.Get("/:reportId/section/:sectionIndex", s.handleReportSection)
+	r.Delete("/:reportId", s.handleReportDelete)
+	r.Get("/:reportId", s.handleReportGet)
+}
+
+func (s *Server) mountSPA(dist string) {
+	root := filepath.Clean(dist)
+	h := func(c *fiber.Ctx) error {
+		if c.Method() != fiber.MethodGet && c.Method() != fiber.MethodHead {
+			return c.SendStatus(fiber.StatusMethodNotAllowed)
+		}
+		wild := strings.TrimSpace(c.Params("*"))
+		rel := strings.TrimPrefix(filepath.Clean("/"+wild), "/")
+		p := filepath.Join(root, rel)
+		if !strings.HasPrefix(p, root) {
+			return c.SendStatus(fiber.StatusNotFound)
+		}
+		fi, err := os.Stat(p)
+		if err != nil || fi.IsDir() {
+			return c.SendFile(filepath.Join(root, "index.html"))
+		}
+		return c.SendFile(p)
+	}
+	s.app.Get("/*", h)
+	s.app.Head("/*", h)
+}
+
+func (s *Server) handleHealth(c *fiber.Ctx) error {
 	data := map[string]any{
 		"status":  "ok",
 		"service": "MiroFish-Offline Lake",
 	}
 	if s.deps.NeoCloser != nil {
-		err := s.deps.Neo4jHealth.Ping(r.Context())
+		err := s.deps.Neo4jHealth.Ping(s.reqCtx(c))
 		data["neo4j_ok"] = err == nil
 		if err != nil {
 			data["neo4j_error"] = err.Error()
 		}
 	}
-	ok(w, data)
-}
-
-func (s *Server) mountGraph(m *http.ServeMux) {
-	prefix := "graph"
-	m.HandleFunc("GET /"+prefix+"/project/{id}", s.handleGetProject)
-	m.HandleFunc("GET /"+prefix+"/project/list", s.handleListProjects)
-	m.HandleFunc("DELETE /"+prefix+"/project/{id}", s.handleDeleteProject)
-	m.HandleFunc("POST /"+prefix+"/project/{id}/reset", s.handleResetProject)
-	m.HandleFunc("POST /"+prefix+"/ontology/generate", s.handleOntologyGenerate)
-	m.HandleFunc("POST /"+prefix+"/build", s.handleGraphBuild)
-	m.HandleFunc("GET /"+prefix+"/task/{id}", s.handleGetTask)
-	m.HandleFunc("GET /"+prefix+"/tasks", s.handleListTasks)
-	m.HandleFunc("GET /"+prefix+"/data/{graphId}", s.handleGetGraphData)
-	m.HandleFunc("DELETE /"+prefix+"/delete/{graphId}", s.handleDeleteGraph)
-	// Neo4j entity reads (Flask: /api/simulation/entities/...). On Lake they live under /graph/entities/...
-	// so /api/simulation/{simulationId}/profiles/... cannot collide with /api/simulation/entities/... .
-	m.HandleFunc("GET /"+prefix+"/entities/{graphId}/by-type/{entityType}", s.handleSimEntitiesByType)
-	m.HandleFunc("GET /"+prefix+"/entities/{graphId}/{entityUUID}", s.handleSimEntityDetail)
-	m.HandleFunc("GET /"+prefix+"/entities/{graphId}", s.handleSimEntities)
-}
-
-func (s *Server) mountSimulation(m *http.ServeMux) {
-	p := "simulation"
-	m.HandleFunc("POST /"+p+"/create", s.handleSimCreate)
-	m.HandleFunc("POST /"+p+"/prepare", s.handleSimPrepare)
-	m.HandleFunc("POST /"+p+"/prepare/status", s.handleSimPrepareStatus)
-	m.HandleFunc("GET /"+p+"/list", s.handleSimList)
-	m.HandleFunc("GET /"+p+"/history", s.handleSimHistory)
-	// Not /script/.../download: that collides with /{simulationId}/config/download (e.g. /simulation/script/config/download).
-	m.HandleFunc("GET /"+p+"/download/script/{scriptName}", s.handleSimScriptDownload)
-	m.HandleFunc("POST /"+p+"/generate-profiles", s.handleSimGenerateProfiles)
-	m.HandleFunc("POST /"+p+"/start", s.handleSimStart)
-	m.HandleFunc("POST /"+p+"/stop", s.handleSimStop)
-	m.HandleFunc("POST /"+p+"/env-status", s.handleSimEnvStatus)
-	m.HandleFunc("POST /"+p+"/close-env", s.handleSimCloseEnv)
-	m.HandleFunc("POST /"+p+"/interview/batch", s.handleSimInterviewBatch)
-	m.HandleFunc("GET /"+p+"/{simulationId}/profiles/realtime", s.handleSimProfilesRealtime)
-	m.HandleFunc("GET /"+p+"/{simulationId}/profiles", s.handleSimProfiles)
-	m.HandleFunc("GET /"+p+"/{simulationId}/config/realtime", s.handleSimConfigRealtime)
-	m.HandleFunc("GET /"+p+"/{simulationId}/config/download", s.handleSimConfigDownload)
-	m.HandleFunc("GET /"+p+"/{simulationId}/config", s.handleSimConfig)
-	m.HandleFunc("GET /"+p+"/{simulationId}/run-status/detail", s.handleSimRunStatusDetail)
-	m.HandleFunc("GET /"+p+"/{simulationId}/run-status", s.handleSimRunStatus)
-	m.HandleFunc("GET /"+p+"/{simulationId}/actions", s.handleSimActions)
-	m.HandleFunc("GET /"+p+"/{simulationId}/timeline", s.handleSimTimeline)
-	m.HandleFunc("GET /"+p+"/{simulationId}/agent-stats", s.handleSimAgentStats)
-	m.HandleFunc("GET /"+p+"/{simulationId}/posts", s.handleSimPosts)
-	m.HandleFunc("GET /"+p+"/{simulationId}/comments", s.handleSimComments)
-	m.HandleFunc("GET /"+p+"/{simulationId}", s.handleSimGet)
-}
-
-func (s *Server) mountReport(m *http.ServeMux) {
-	p := "report"
-	m.HandleFunc("GET /"+p+"/generate/status", s.handleReportGenerateStatusGET)
-	m.HandleFunc("POST /"+p+"/generate/status", s.handleReportGenerateStatusPOST)
-	// Query ?simulation_id= — path params would clash with /{reportId}/agent-log (e.g. /report/check/agent-log).
-	m.HandleFunc("GET /"+p+"/check", s.handleReportCheck)
-	m.HandleFunc("GET /"+p+"/by-simulation", s.handleReportBySimulation)
-	m.HandleFunc("GET /"+p+"/list", s.handleReportList)
-	m.HandleFunc("POST /"+p+"/tools/search", s.handleReportToolsSearch)
-	m.HandleFunc("POST /"+p+"/tools/statistics", s.handleReportToolsStatistics)
-	m.HandleFunc("POST /"+p+"/generate", s.handleReportGenerate)
-	m.HandleFunc("POST /"+p+"/chat", s.handleReportChat)
-	m.HandleFunc("GET /"+p+"/{reportId}/agent-log/stream", s.handleReportAgentLogStream)
-	m.HandleFunc("GET /"+p+"/{reportId}/console-log/stream", s.handleReportConsoleLogStream)
-	m.HandleFunc("GET /"+p+"/{reportId}/agent-log", s.handleReportAgentLog)
-	m.HandleFunc("GET /"+p+"/{reportId}/console-log", s.handleReportConsoleLog)
-	m.HandleFunc("GET /"+p+"/{reportId}/download", s.handleReportDownload)
-	m.HandleFunc("GET /"+p+"/{reportId}/progress", s.handleReportProgress)
-	m.HandleFunc("GET /"+p+"/{reportId}/sections", s.handleReportSections)
-	m.HandleFunc("GET /"+p+"/{reportId}/section/{sectionIndex}", s.handleReportSection)
-	m.HandleFunc("DELETE /"+p+"/{reportId}", s.handleReportDelete)
-	m.HandleFunc("GET /"+p+"/{reportId}", s.handleReportGet)
-}
-
-func (s *Server) stubGraph(label string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		_ = r
-		fail(w, http.StatusNotImplemented, "lake skeleton: "+label+" — port use case + adapter")
-	}
+	return okResp(c, data)
 }

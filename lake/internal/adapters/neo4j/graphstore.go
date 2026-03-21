@@ -42,9 +42,12 @@ func NewGraphStore(cfg config.Config, llm *openai.Client) (*GraphStore, error) {
 		llm:      llm,
 		embedder: ollama.NewEmbedder(cfg),
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	_ = gs.ensureSchema(ctx)
+	// Do not block HTTP listen on Bolt/schema; same best-effort behavior as before.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		_ = gs.ensureSchema(ctx)
+	}()
 	return gs, nil
 }
 

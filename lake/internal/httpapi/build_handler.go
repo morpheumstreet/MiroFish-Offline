@@ -2,11 +2,10 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"runtime/debug"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/mirofish-offline/lake/internal/domain"
 	"github.com/mirofish-offline/lake/internal/ports"
 )
@@ -19,46 +18,35 @@ type buildGraphRequest struct {
 	Force        bool   `json:"force"`
 }
 
-func (s *Server) handleGraphBuild(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		fail(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
+func (s *Server) handleGraphBuild(c *fiber.Ctx) error {
 	if !s.deps.GraphReady {
-		fail(w, http.StatusServiceUnavailable, "Graph storage not initialized — check Neo4j connection")
-		return
+		return failResp(c, fiber.StatusServiceUnavailable, "Graph storage not initialized — check Neo4j connection")
 	}
 	var req buildGraphRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fail(w, http.StatusBadRequest, "invalid JSON body")
-		return
+	if err := c.BodyParser(&req); err != nil {
+		return failResp(c, fiber.StatusBadRequest, "invalid JSON body")
 	}
 	if req.ProjectID == "" {
-		fail(w, http.StatusBadRequest, "Please provide project_id")
-		return
+		return failResp(c, fiber.StatusBadRequest, "Please provide project_id")
 	}
-	ctx := r.Context()
+	ctx := s.reqCtx(c)
 	proj, err := s.deps.Projects.GetProject(ctx, req.ProjectID)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 	if proj == nil {
-		fail(w, http.StatusNotFound, "Project does not exist: "+req.ProjectID)
-		return
+		return failResp(c, fiber.StatusNotFound, "Project does not exist: "+req.ProjectID)
 	}
 
 	if proj.Status == domain.StatusCreated {
-		fail(w, http.StatusBadRequest, "Project has not generated ontology yet. Please call /ontology/generate first")
-		return
+		return failResp(c, fiber.StatusBadRequest, "Project has not generated ontology yet. Please call /ontology/generate first")
 	}
 	if proj.Status == domain.StatusGraphBuilding && !req.Force {
-		writeJSON(w, http.StatusBadRequest, map[string]any{
+		return sendJSON(c, fiber.StatusBadRequest, map[string]any{
 			"success": false,
 			"error":   "Graph is being built. Do not submit repeatedly. To force rebuild, add force: true",
 			"task_id": nullStr(proj.GraphBuildTaskID),
 		})
-		return
 	}
 	if req.Force && (proj.Status == domain.StatusGraphBuilding || proj.Status == domain.StatusFailed || proj.Status == domain.StatusGraphCompleted) {
 		proj.Status = domain.StatusOntologyGenerated
@@ -93,16 +81,13 @@ func (s *Server) handleGraphBuild(w http.ResponseWriter, r *http.Request) {
 
 	text, err := s.deps.Projects.GetExtractedText(ctx, req.ProjectID)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 	if text == "" {
-		fail(w, http.StatusBadRequest, "Extracted text not found")
-		return
+		return failResp(c, fiber.StatusBadRequest, "Extracted text not found")
 	}
 	if len(proj.Ontology) == 0 {
-		fail(w, http.StatusBadRequest, "Ontology definition not found")
-		return
+		return failResp(c, fiber.StatusBadRequest, "Ontology definition not found")
 	}
 
 	taskType := fmt.Sprintf("Build graph: %s", graphName)
@@ -111,22 +96,20 @@ func (s *Server) handleGraphBuild(w http.ResponseWriter, r *http.Request) {
 		"graph_name": graphName,
 	})
 	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	proj.Status = domain.StatusGraphBuilding
 	proj.GraphBuildTaskID = taskID
 	if err := s.deps.Projects.SaveProject(ctx, proj); err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
+		return failResp(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	projectID := req.ProjectID
 	ontology := proj.Ontology
 	go s.runGraphBuild(context.Background(), taskID, projectID, graphName, text, ontology, chunkSize, overlap)
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	return sendJSON(c, fiber.StatusOK, map[string]any{
 		"success": true,
 		"data": map[string]any{
 			"project_id": projectID,

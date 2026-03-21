@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/mirofish-offline/lake/internal/app"
 	"github.com/mirofish-offline/lake/internal/config"
@@ -33,26 +31,20 @@ func main() {
 		defer func() { _ = deps.NeoCloser() }()
 	}
 
-	srv := &http.Server{
-		Addr:              cfg.ListenAddr(),
-		Handler:           httpapi.NewServer(deps).Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+	srv := httpapi.NewServer(deps)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	go func() {
 		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
+		if err := srv.App().Shutdown(); err != nil {
 			log.Printf("shutdown: %v", err)
 		}
 	}()
 
 	log.Printf("lake listening on http://%s (health: /health)", cfg.ListenAddr())
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
+	if err := srv.App().Listen(cfg.ListenAddr()); err != nil {
+		log.Printf("listen: %v", err)
 	}
 }
