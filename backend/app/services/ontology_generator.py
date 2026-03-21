@@ -265,24 +265,55 @@ Based on the above content, design entity types and relationship types suitable 
         if "analysis_summary" not in result:
             result["analysis_summary"] = ""
 
-        # Validate entity types
-        for entity in result["entity_types"]:
+        # Normalize entity types (LLMs sometimes omit "name" or use synonyms)
+        entity_types_raw = result["entity_types"]
+        if not isinstance(entity_types_raw, list):
+            entity_types_raw = []
+        cleaned_entities: List[Dict[str, Any]] = []
+        for entity in entity_types_raw:
+            if not isinstance(entity, dict):
+                continue
+            if not (entity.get("name") or "").strip():
+                for alt in ("type", "label", "entity_type", "entity_name", "title"):
+                    v = entity.get(alt)
+                    if v is not None and str(v).strip():
+                        entity["name"] = str(v).strip()
+                        break
+            if not (entity.get("name") or "").strip():
+                entity["name"] = f"EntityType_{len(cleaned_entities) + 1}"
             if "attributes" not in entity:
                 entity["attributes"] = []
             if "examples" not in entity:
                 entity["examples"] = []
-            # Ensure description doesn't exceed 100 characters
             if len(entity.get("description", "")) > 100:
                 entity["description"] = entity["description"][:97] + "..."
+            cleaned_entities.append(entity)
+        result["entity_types"] = cleaned_entities
 
-        # Validate relationship types
-        for edge in result["edge_types"]:
+        # Normalize relationship types
+        edge_types_raw = result["edge_types"]
+        if not isinstance(edge_types_raw, list):
+            edge_types_raw = []
+        cleaned_edges: List[Dict[str, Any]] = []
+        for edge in edge_types_raw:
+            if not isinstance(edge, dict):
+                continue
+            if not (edge.get("name") or "").strip():
+                for alt in ("type", "label", "relation_type", "edge_type"):
+                    v = edge.get(alt)
+                    if v is not None and str(v).strip():
+                        edge["name"] = str(v).strip()
+                        break
+            if not (edge.get("name") or "").strip():
+                edge["name"] = f"RELATION_{len(cleaned_edges) + 1}"
             if "source_targets" not in edge:
                 edge["source_targets"] = []
             if "attributes" not in edge:
                 edge["attributes"] = []
             if len(edge.get("description", "")) > 100:
                 edge["description"] = edge["description"][:97] + "..."
+            cleaned_edges.append(edge)
+        result["edge_types"] = cleaned_edges
 
         # Zep API limit: maximum 10 custom entity types, maximum 10 custom edge types
         MAX_ENTITY_TYPES = 10
