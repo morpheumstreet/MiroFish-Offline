@@ -67,6 +67,14 @@ docker exec mirofish-ollama ollama pull nomic-embed-text
 
 Open `http://localhost:5001` — Flask serves the built SPA and `/api` on the same port in Docker.
 
+**Pre-built image (Linux, one line)** — requires Neo4j (Bolt on `127.0.0.1:7687`) and Ollama (`127.0.0.1:11434`) already running on the host (for example `docker compose up -d neo4j ollama` from this repo, after `cp .env.example .env`). Uses host networking so the container can reach those services. Adjust `NEO4J_USER` / `NEO4J_PASSWORD` if yours differ from `.env.example`.
+
+```bash
+docker pull sorajez/mirofish-offline:latest && docker run -d --name mirofish-offline --restart unless-stopped --network host -e LLM_API_KEY=ollama -e LLM_BASE_URL=http://127.0.0.1:11434/v1 -e LLM_MODEL_NAME=qwen2.5:32b -e NEO4J_URI=bolt://127.0.0.1:7687 -e NEO4J_USER=neo4j -e NEO4J_PASSWORD=mirofish -e EMBEDDING_MODEL=nomic-embed-text -e EMBEDDING_BASE_URL=http://127.0.0.1:11434 -e OPENAI_API_KEY=ollama -e OPENAI_API_BASE_URL=http://127.0.0.1:11434/v1 -v mirofish-offline-uploads:/app/backend/uploads sorajez/mirofish-offline:latest
+```
+
+Then pull models into Ollama (same as above), e.g. `docker exec mirofish-ollama ollama pull qwen2.5:32b` if Ollama runs in Compose. If the name `mirofish-offline` is already taken: `docker rm -f mirofish-offline` before `docker run`.
+
 ### Option B: Manual
 
 **1. Start Neo4j**
